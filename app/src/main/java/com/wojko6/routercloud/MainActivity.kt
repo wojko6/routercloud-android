@@ -13,13 +13,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,6 +44,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
 import com.wojko6.routercloud.network.RouterCloudClient
@@ -864,6 +872,18 @@ private fun FilesScreen(
             downloadingFile != null ||
             uploadingFile != null
 
+    val context = LocalContext.current
+
+    var showMoreTiles by remember(context) {
+        mutableStateOf(
+            loadMetroShowMoreTiles(context),
+        )
+    }
+
+    var layoutMenuExpanded by remember {
+        mutableStateOf(false)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -903,11 +923,55 @@ private fun FilesScreen(
                 )
             }
 
-            TextButton(
-                onClick = onLogout,
-                enabled = !busy,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Wyloguj")
+                Box {
+                    TextButton(
+                        onClick = {
+                            layoutMenuExpanded = true
+                        },
+                    ) {
+                        Text("Układ")
+                    }
+
+                    DropdownMenu(
+                        expanded = layoutMenuExpanded,
+                        onDismissRequest = {
+                            layoutMenuExpanded = false
+                        },
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("Pokaż więcej kafelków")
+                            },
+                            trailingIcon = {
+                                Switch(
+                                    checked = showMoreTiles,
+                                    onCheckedChange = null,
+                                )
+                            },
+                            onClick = {
+                                showMoreTiles =
+                                    !showMoreTiles
+
+                                saveMetroShowMoreTiles(
+                                    context,
+                                    showMoreTiles,
+                                )
+
+                                layoutMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = onLogout,
+                    enabled = !busy,
+                ) {
+                    Text("Wyloguj")
+                }
             }
         }
 
@@ -921,37 +985,14 @@ private fun FilesScreen(
             }
         }
 
-        if (directory.allowUpload) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = 20.dp,
-                        vertical = 8.dp,
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                MetroActionTile(
-                    icon = MetroActionGlyphType.Upload,
-                    label = "Wyślij plik",
-                    enabled = !busy,
-                    onClick = onUpload,
-                    modifier = Modifier.weight(1f),
-                )
-
-                MetroActionTile(
-                    icon = MetroActionGlyphType.NewFolder,
-                    label = "Katalog",
-                    enabled = !busy,
-                    onClick = onCreateDirectory,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        directory.storage?.let { storage ->
-            StorageTile(storage)
-        }
+        MetroTileDashboard(
+            storage = directory.storage,
+            allowUpload = directory.allowUpload,
+            busy = busy,
+            showMoreTiles = showMoreTiles,
+            onUpload = onUpload,
+            onCreateDirectory = onCreateDirectory,
+        )
 
         if (pendingSharedFile) {
             Column(
@@ -1036,46 +1077,400 @@ private fun FilesScreen(
     }
 }
 
+private const val METRO_TILE_PREFS =
+    "routercloud-metro-tile-layout-v1"
+
+private const val METRO_TILE_UPLOAD =
+    "upload"
+
+private const val METRO_TILE_DIRECTORY =
+    "directory"
+
+private const val METRO_TILE_STORAGE =
+    "storage"
+
+private const val METRO_SHOW_MORE_TILES =
+    "show_more_tiles"
+
+
+private enum class MetroTileSize(
+    val displayName: String,
+) {
+    Small("Mały"),
+    Medium("Średni"),
+    Wide("Szeroki"),
+}
+
+
+private fun loadMetroShowMoreTiles(
+    context: Context,
+): Boolean {
+    return context
+        .getSharedPreferences(
+            METRO_TILE_PREFS,
+            Context.MODE_PRIVATE,
+        )
+        .getBoolean(
+            METRO_SHOW_MORE_TILES,
+            false,
+        )
+}
+
+
+private fun saveMetroShowMoreTiles(
+    context: Context,
+    enabled: Boolean,
+) {
+    context
+        .getSharedPreferences(
+            METRO_TILE_PREFS,
+            Context.MODE_PRIVATE,
+        )
+        .edit()
+        .putBoolean(
+            METRO_SHOW_MORE_TILES,
+            enabled,
+        )
+        .apply()
+}
+
+
+private fun loadMetroTileSize(
+    context: Context,
+    key: String,
+    default: MetroTileSize,
+): MetroTileSize {
+    val stored =
+        context
+            .getSharedPreferences(
+                METRO_TILE_PREFS,
+                Context.MODE_PRIVATE,
+            )
+            .getString(key, null)
+
+    if (stored == "Large") {
+        return MetroTileSize.Wide
+    }
+
+    return MetroTileSize
+        .values()
+        .firstOrNull { it.name == stored }
+        ?: default
+}
+
+
+private fun saveMetroTileSize(
+    context: Context,
+    key: String,
+    size: MetroTileSize,
+) {
+    context
+        .getSharedPreferences(
+            METRO_TILE_PREFS,
+            Context.MODE_PRIVATE,
+        )
+        .edit()
+        .putString(key, size.name)
+        .apply()
+}
+
+
+private fun Modifier.metroTileDimensions(
+    tileSize: MetroTileSize,
+    cellSize: Dp,
+    gap: Dp,
+): Modifier {
+    val widthUnits =
+        when (tileSize) {
+            MetroTileSize.Small -> 1
+            MetroTileSize.Medium -> 2
+            MetroTileSize.Wide -> 4
+        }
+
+    val heightUnits =
+        when (tileSize) {
+            MetroTileSize.Small -> 1
+            MetroTileSize.Medium,
+            MetroTileSize.Wide -> 2
+        }
+
+    val tileWidth =
+        cellSize * widthUnits +
+            gap * (widthUnits - 1)
+
+    val tileHeight =
+        cellSize * heightUnits +
+            gap * (heightUnits - 1)
+
+    return width(tileWidth)
+        .height(tileHeight)
+}
+
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MetroTileDashboard(
+    storage: RouterCloudStorage?,
+    allowUpload: Boolean,
+    busy: Boolean,
+    showMoreTiles: Boolean,
+    onUpload: () -> Unit,
+    onCreateDirectory: () -> Unit,
+) {
+    if (!allowUpload && storage == null) {
+        return
+    }
+
+    val context = LocalContext.current
+
+    var uploadSize by remember(context) {
+        mutableStateOf(
+            loadMetroTileSize(
+                context,
+                METRO_TILE_UPLOAD,
+                MetroTileSize.Medium,
+            ),
+        )
+    }
+
+    var directorySize by remember(context) {
+        mutableStateOf(
+            loadMetroTileSize(
+                context,
+                METRO_TILE_DIRECTORY,
+                MetroTileSize.Medium,
+            ),
+        )
+    }
+
+    var storageSize by remember(context) {
+        mutableStateOf(
+            loadMetroTileSize(
+                context,
+                METRO_TILE_STORAGE,
+                MetroTileSize.Wide,
+            ),
+        )
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp,
+                vertical = 8.dp,
+            ),
+    ) {
+        val gap = 8.dp
+
+        // Windows 10 Mobile-inspired Start layout.
+        //
+        // Default:
+        // 6 small units = 3 medium tiles.
+        //
+        // "Show more tiles":
+        // 8 small units = 4 medium tiles = 2 wide tiles.
+        val gridUnits =
+            if (showMoreTiles) {
+                8
+            } else {
+                6
+            }
+
+        val cellSize =
+            (
+                maxWidth -
+                    gap * (gridUnits - 1)
+            ) / gridUnits
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.spacedBy(gap),
+            verticalArrangement =
+                Arrangement.spacedBy(gap),
+        ) {
+            if (allowUpload) {
+                MetroActionTile(
+                    icon = MetroActionGlyphType.Upload,
+                    label = "Wyślij plik",
+                    enabled = !busy,
+                    tileSize = uploadSize,
+                    onClick = onUpload,
+                    onSizeChange = { newSize ->
+                        uploadSize = newSize
+
+                        saveMetroTileSize(
+                            context,
+                            METRO_TILE_UPLOAD,
+                            newSize,
+                        )
+                    },
+                    modifier = Modifier.metroTileDimensions(
+                        uploadSize,
+                        cellSize,
+                        gap,
+                    ),
+                )
+
+                MetroActionTile(
+                    icon = MetroActionGlyphType.NewFolder,
+                    label = "Katalog",
+                    enabled = !busy,
+                    tileSize = directorySize,
+                    onClick = onCreateDirectory,
+                    onSizeChange = { newSize ->
+                        directorySize = newSize
+
+                        saveMetroTileSize(
+                            context,
+                            METRO_TILE_DIRECTORY,
+                            newSize,
+                        )
+                    },
+                    modifier = Modifier.metroTileDimensions(
+                        directorySize,
+                        cellSize,
+                        gap,
+                    ),
+                )
+            }
+
+            if (storage != null) {
+                StorageTile(
+                    storage = storage,
+                    tileSize = storageSize,
+                    onSizeChange = { newSize ->
+                        storageSize = newSize
+
+                        saveMetroTileSize(
+                            context,
+                            METRO_TILE_STORAGE,
+                            newSize,
+                        )
+                    },
+                    modifier = Modifier.metroTileDimensions(
+                        storageSize,
+                        cellSize,
+                        gap,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MetroActionTile(
     icon: MetroActionGlyphType,
     label: String,
     enabled: Boolean,
+    tileSize: MetroTileSize,
     onClick: () -> Unit,
+    onSizeChange: (MetroTileSize) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.height(112.dp),
-        shape = RectangleShape,
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    var sizeMenuExpanded by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = modifier,
     ) {
-        Column(
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+                .combinedClickable(
+                    onClick = {
+                        if (enabled) {
+                            onClick()
+                        }
+                    },
+                    onLongClick = {
+                        sizeMenuExpanded = true
+                    },
+                ),
+            shape = RectangleShape,
+            color =
+                if (enabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.primary.copy(
+                        alpha = 0.45f,
+                    )
+                },
+            contentColor =
+                MaterialTheme.colorScheme.onPrimary,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
-            MetroActionGlyph(
-                type = icon,
-            )
+            if (tileSize == MetroTileSize.Small) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    MetroActionGlyph(
+                        type = icon,
+                        glyphSize = 18.dp,
+                    )
+                }
+            } else {
+                val compact =
+                    tileSize == MetroTileSize.Medium
 
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-            )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            if (compact) 7.dp else 10.dp,
+                        ),
+                    verticalArrangement =
+                        Arrangement.SpaceBetween,
+                ) {
+                    MetroActionGlyph(
+                        type = icon,
+                        glyphSize =
+                            if (compact) 22.dp else 24.dp,
+                    )
+
+                    Text(
+                        text = label,
+                        style =
+                            if (compact) {
+                                MaterialTheme.typography.bodySmall
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
+
+        MetroTileSizeMenu(
+            expanded = sizeMenuExpanded,
+            currentSize = tileSize,
+            onDismiss = {
+                sizeMenuExpanded = false
+            },
+            onSizeChange = {
+                sizeMenuExpanded = false
+                onSizeChange(it)
+            },
+        )
     }
 }
 
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StorageTile(
     storage: RouterCloudStorage,
+    tileSize: MetroTileSize,
+    onSizeChange: (MetroTileSize) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val percentage =
         if (storage.total > 0L) {
@@ -1088,66 +1483,194 @@ private fun StorageTile(
             0.0
         }
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 20.dp,
+    var sizeMenuExpanded by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = modifier,
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        sizeMenuExpanded = true
+                    },
+                ),
+            tonalElevation = 3.dp,
+            shadowElevation = 0.dp,
+            shape = RectangleShape,
+        ) {
+            when (tileSize) {
+                MetroTileSize.Small -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(3.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = String.format(
+                                Locale.getDefault(),
+                                "%.1f%%",
+                                percentage,
+                            ),
+                            style =
+                                MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
+                MetroTileSize.Medium -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(7.dp),
+                        verticalArrangement =
+                            Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Pamięć",
+                            style =
+                                MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+
+                        Text(
+                            text = String.format(
+                                Locale.getDefault(),
+                                "%.1f%%",
+                                percentage,
+                            ),
+                            style =
+                                MaterialTheme.typography.titleMedium,
+                        )
+
+                        Text(
+                            text =
+                                formatBytes(storage.used),
+                            style =
+                                MaterialTheme.typography.labelSmall,
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                        )
+                    }
+                }
+
+                MetroTileSize.Wide -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(9.dp),
+                        verticalArrangement =
+                            Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Pamięć",
+                                style =
+                                    MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+
+                            Text(
+                                text = String.format(
+                                    Locale.getDefault(),
+                                    "%.1f%%",
+                                    percentage,
+                                ),
+                                style =
+                                    MaterialTheme.typography.titleMedium,
+                            )
+                        }
+
+                        Text(
+                            text =
+                                "${formatBytes(storage.used)} zajęte",
+                            style =
+                                MaterialTheme.typography.bodyMedium,
+                        )
+
+                        Text(
+                            text =
+                                "${formatBytes(storage.available)} wolne",
+                            style =
+                                MaterialTheme.typography.bodySmall,
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
+        MetroTileSizeMenu(
+            expanded = sizeMenuExpanded,
+            currentSize = tileSize,
+            onDismiss = {
+                sizeMenuExpanded = false
+            },
+            onSizeChange = {
+                sizeMenuExpanded = false
+                onSizeChange(it)
+            },
+        )
+    }
+}
+
+
+@Composable
+private fun MetroTileSizeMenu(
+    expanded: Boolean,
+    currentSize: MetroTileSize,
+    onDismiss: () -> Unit,
+    onSizeChange: (MetroTileSize) -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+    ) {
+        Text(
+            text = "Rozmiar kafelka",
+            modifier = Modifier.padding(
+                horizontal = 12.dp,
                 vertical = 8.dp,
             ),
-        tonalElevation = 3.dp,
-        shape = RectangleShape,
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement =
-                Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = "Pamięć",
-                style =
-                    MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
+            style = MaterialTheme.typography.labelMedium,
+            color =
+                MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
-            Text(
-                text =
-                    "${formatBytes(storage.used)} zajęte",
-                style =
-                    MaterialTheme.typography.headlineSmall,
-            )
-
-            Text(
-                text =
-                    String.format(
-                        Locale.getDefault(),
-                        "%.1f%% wykorzystania",
-                        percentage,
-                    ),
-                style =
-                    MaterialTheme.typography.bodyMedium,
-                color =
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Text(
-                text =
-                    "Wolne: ${formatBytes(storage.available)}",
-                style =
-                    MaterialTheme.typography.bodyMedium,
-            )
-
-            Text(
-                text =
-                    "Łącznie: ${formatBytes(storage.total)}",
-                style =
-                    MaterialTheme.typography.bodyMedium,
-                color =
-                    MaterialTheme.colorScheme.onSurfaceVariant,
+        MetroTileSize.values().forEach { size ->
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text =
+                            if (size == currentSize) {
+                                "✓ ${size.displayName}"
+                            } else {
+                                size.displayName
+                            },
+                    )
+                },
+                onClick = {
+                    onSizeChange(size)
+                },
             )
         }
     }
 }
+
 
 @Composable
 private fun TextPreviewScreen(

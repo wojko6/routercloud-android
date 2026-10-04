@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 enum class MetroActionGlyphType {
@@ -21,11 +22,12 @@ enum class MetroActionGlyphType {
 fun MetroActionGlyph(
     type: MetroActionGlyphType,
     modifier: Modifier = Modifier,
+    glyphSize: Dp = 48.dp,
 ) {
     val color = LocalContentColor.current
 
     Canvas(
-        modifier = modifier.size(48.dp),
+        modifier = modifier.size(glyphSize),
     ) {
         val stroke = Stroke(
             width = 2.2.dp.toPx(),
