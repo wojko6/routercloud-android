@@ -1063,3 +1063,50 @@ Kolejny etap:
 - Small / Medium / Wide / Large
 - zapis układu pomiędzy uruchomieniami
 - interakcja przez długie przytrzymanie
+
+---
+
+## 30. Aktualizacja — rozmiary kafli i gęstość Windows 10 Mobile
+
+Dodano mechanizm rozmiarów kafli inspirowany Windows 10 Mobile.
+
+Obsługiwane rozmiary:
+
+- Mały
+- Średni
+- Szeroki
+
+Usunięto wcześniejszy wariant Duży, który odpowiadał bardziej
+desktopowemu Windows 10 niż Windows 10 Mobile.
+
+Dodano dwa tryby gęstości:
+
+- domyślny: 6 małych jednostek szerokości
+- Pokaż więcej kafelków: 8 małych jednostek szerokości
+
+Domyślny wariant pozwala zachować większe kafle typowe dla
+Windows 10 Mobile.
+
+Tryb Pokaż więcej kafelków umożliwia gęstszy układ,
+w tym dwa szerokie kafle obok siebie.
+
+Rozmiary kafli oraz wybór gęstości są zapisywane lokalnie
+i zachowywane po ponownym uruchomieniu aplikacji.
+
+Test wizualny na fizycznym urządzeniu:
+
+PASS
+
+Stan:
+
+- Small / Medium / Wide: PASS
+- 6-unit layout: PASS
+- 8-unit Show more tiles layout: PASS
+- persistent tile size: PASS
+- persistent density setting: PASS
+
+Następny etap:
+
+- tryb edycji kafli
+- drag and drop / zmiana kolejności
+- trwały zapis kolejności
