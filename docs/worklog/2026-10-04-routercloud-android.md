@@ -1017,3 +1017,49 @@ Stan:
 - File type detection: PASS
 - Material icon replacement: PASS
 - Physical-device visual test: PASS
+
+---
+
+## 29. Aktualizacja — Metro UI v2 i kafle akcji
+
+Przebudowano górną część ekranu plików w kierunku
+Windows 10 Mobile / Metro.
+
+Zmiany:
+
+- większy nagłówek RouterCloud
+- uproszczona hierarchia ścieżki i licznika elementów
+- dwa prostokątne kafle akcji:
+  - Wyślij plik
+  - Katalog
+- zachowane ostre narożniki
+- brak cieni i zaokrągleń
+- układ dwóch kafli obok siebie
+- kafel Pamięć pozostaje szerokim kaflem informacyjnym
+
+Tekstowe symbole akcji zostały zastąpione własnymi glyphami
+renderowanymi przez Canvas:
+
+- Upload
+- New Folder
+
+Glyphy korzystają z tego samego płaskiego, geometrycznego języka
+co własne ikony typów plików RouterCloud.
+
+Test wizualny na fizycznym urządzeniu:
+
+`PASS`
+
+Stan:
+
+- Metro header: PASS
+- Metro action tiles: PASS
+- Custom action glyphs: PASS
+- Physical-device visual test: PASS
+
+Kolejny etap:
+
+- zmiana rozmiaru kafli
+- Small / Medium / Wide / Large
+- zapis układu pomiędzy uruchomieniami
+- interakcja przez długie przytrzymanie
