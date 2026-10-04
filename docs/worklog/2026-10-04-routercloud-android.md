@@ -567,6 +567,8 @@ Obecny klient Android:
     [PASS] Fingerprint unlock
     [PASS] Fingerprint unlock E2E
     [PASS] Backend permissions respected in UI
+    [PASS] Storage information
+    [PASS] Metro storage tile
 
 ---
 
@@ -893,3 +895,54 @@ Stan:
 - Delete permissions: PASS
 - Android Share upload permissions: PASS
 - Backend permissions respected in UI: PASS
+
+---
+
+## 27. Aktualizacja — informacje o zajętości przestrzeni
+
+Zaimplementowano i przetestowano prezentację informacji o przestrzeni
+dyskowej RouterCloud.
+
+Backend zwraca obiekt:
+
+`storage`
+
+z polami:
+
+- `total`
+- `used`
+- `available`
+
+Klient Android mapuje dane do modelu:
+
+`RouterCloudStorage`
+
+UI:
+
+- dodano pierwszy właściwy kafel w stylistyce RouterCloud Metro
+- kafel ma ostre narożniki zgodne z wersją webową
+- prezentuje:
+  - zajęte miejsce
+  - procent wykorzystania
+  - wolne miejsce
+  - pojemność całkowitą
+- procent wykorzystania prezentowany jest z dokładnością do jednego
+  miejsca po przecinku
+
+Przykładowy zweryfikowany stan backendu:
+
+- total: 423466610688 B
+- used: 2227953664 B
+- available: 399652462592 B
+
+Test na fizycznym urządzeniu:
+
+`PASS`
+
+Stan:
+
+- Storage backend parsing: PASS
+- Storage model: PASS
+- Storage UI: PASS
+- Metro sharp-corner styling: PASS
+- Storage E2E: PASS
