@@ -130,6 +130,7 @@ private fun RouterCloudApp(
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var renameEntry by remember { mutableStateOf<RouterCloudEntry?>(null) }
+    var deleteEntry by remember { mutableStateOf<RouterCloudEntry?>(null) }
     var pendingSharedUri by remember {
         mutableStateOf(initialSharedUri)
     }
@@ -223,6 +224,27 @@ private fun RouterCloudApp(
             } catch (e: Exception) {
                 error = e.message
                     ?: "Nie udało się zmienić nazwy."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun deleteItem(entry: RouterCloudEntry) {
+        scope.launch {
+            loading = true
+            error = null
+
+            try {
+                val refreshed = withContext(Dispatchers.IO) {
+                    client.delete(remotePath(entry))
+                    client.listDirectory(currentPath)
+                }
+
+                directory = refreshed
+            } catch (e: Exception) {
+                error = e.message
+                    ?: "Nie udało się usunąć elementu."
             } finally {
                 loading = false
             }
@@ -507,6 +529,10 @@ private fun RouterCloudApp(
                     error = null
                     renameEntry = entry
                 },
+                onDelete = { entry ->
+                    error = null
+                    deleteEntry = entry
+                },
                 onUploadSharedHere = {
                     pendingSharedUri?.let { uri ->
                         uploadUri(
@@ -575,6 +601,19 @@ private fun RouterCloudApp(
                             entry = entry,
                             newName = newName,
                         )
+                    },
+                )
+            }
+
+            deleteEntry?.let { entry ->
+                DeleteDialog(
+                    entry = entry,
+                    onDismiss = {
+                        deleteEntry = null
+                    },
+                    onDelete = {
+                        deleteEntry = null
+                        deleteItem(entry)
                     },
                 )
             }
@@ -671,6 +710,7 @@ private fun FilesScreen(
     onUpload: () -> Unit,
     onCreateDirectory: () -> Unit,
     onRename: (RouterCloudEntry) -> Unit,
+    onDelete: (RouterCloudEntry) -> Unit,
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
@@ -815,11 +855,15 @@ private fun FilesScreen(
                     entry = entry,
                     enabled = !busy,
                     allowRename = directory.allowMove,
+                    allowDelete = directory.allowDelete,
                     onClick = {
                         onEntryClick(entry)
                     },
                     onRename = {
                         onRename(entry)
+                    },
+                    onDelete = {
+                        onDelete(entry)
                     },
                 )
 
@@ -1004,12 +1048,61 @@ private fun RenameDialog(
 }
 
 @Composable
+private fun DeleteDialog(
+    entry: RouterCloudEntry,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val displayName = entry.name
+        .trim('/')
+        .substringAfterLast('/')
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (entry.isDirectory) {
+                    "Usuń katalog"
+                } else {
+                    "Usuń plik"
+                }
+            )
+        },
+        text = {
+            Text(
+                "Czy na pewno chcesz usunąć „$displayName”? " +
+                    "Tej operacji nie można cofnąć."
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDelete,
+            ) {
+                Text(
+                    text = "Usuń",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+            ) {
+                Text("Anuluj")
+            }
+        },
+    )
+}
+
+@Composable
 private fun FileRow(
     entry: RouterCloudEntry,
     enabled: Boolean,
     allowRename: Boolean,
+    allowDelete: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     var menuExpanded by remember {
         mutableStateOf(false)
@@ -1055,7 +1148,7 @@ private fun FileRow(
             )
         }
 
-        if (allowRename) {
+        if (allowRename || allowDelete) {
             Box {
                 TextButton(
                     onClick = {
@@ -1072,15 +1165,32 @@ private fun FileRow(
                         menuExpanded = false
                     },
                 ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text("Zmień nazwę")
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onRename()
-                        },
-                    )
+                    if (allowRename) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("Zmień nazwę")
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onRename()
+                            },
+                        )
+                    }
+
+                    if (allowDelete) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Usuń",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }

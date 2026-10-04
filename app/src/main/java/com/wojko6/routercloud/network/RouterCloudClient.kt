@@ -228,6 +228,36 @@ class RouterCloudClient(
         }
     }
 
+    fun delete(path: String) {
+        val request = Request.Builder()
+            .url(buildUrl(path))
+            .delete()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            when (response.code) {
+                200, 204 -> Unit
+
+                401 -> throw RouterCloudAuthException()
+
+                403 -> throw RouterCloudHttpException(
+                    response.code,
+                    "Brak uprawnień do usunięcia elementu.",
+                )
+
+                404 -> throw RouterCloudHttpException(
+                    response.code,
+                    "Element już nie istnieje.",
+                )
+
+                else -> throw RouterCloudHttpException(
+                    response.code,
+                    "Nie udało się usunąć elementu (HTTP ${response.code}).",
+                )
+            }
+        }
+    }
+
     fun createDirectory(path: String) {
         val request = Request.Builder()
             .url(buildUrl(path))
