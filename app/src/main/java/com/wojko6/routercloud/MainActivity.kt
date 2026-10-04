@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -58,6 +59,7 @@ import androidx.fragment.app.FragmentActivity
 import com.wojko6.routercloud.network.RouterCloudClient
 import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
+import com.wojko6.routercloud.network.RouterCloudStorage
 import com.wojko6.routercloud.security.BiometricSessionController
 import com.wojko6.routercloud.ui.theme.RouterCloudTheme
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +67,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 private data class TextPreviewState(
     val fileName: String,
@@ -894,6 +897,10 @@ private fun FilesScreen(
             }
         }
 
+        directory.storage?.let { storage ->
+            StorageTile(storage)
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1005,6 +1012,82 @@ private fun FilesScreen(
 
                 HorizontalDivider()
             }
+        }
+    }
+}
+
+@Composable
+private fun StorageTile(
+    storage: RouterCloudStorage,
+) {
+    val percentage =
+        if (storage.total > 0L) {
+            (
+                storage.used.toDouble() /
+                    storage.total.toDouble() *
+                    100.0
+            ).coerceIn(0.0, 100.0)
+        } else {
+            0.0
+        }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp,
+                vertical = 8.dp,
+            ),
+        tonalElevation = 3.dp,
+        shape = RectangleShape,
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "Pamięć",
+                style =
+                    MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Text(
+                text =
+                    "${formatBytes(storage.used)} zajęte",
+                style =
+                    MaterialTheme.typography.headlineSmall,
+            )
+
+            Text(
+                text =
+                    String.format(
+                        Locale.getDefault(),
+                        "%.1f%% wykorzystania",
+                        percentage,
+                    ),
+                style =
+                    MaterialTheme.typography.bodyMedium,
+                color =
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Text(
+                text =
+                    "Wolne: ${formatBytes(storage.available)}",
+                style =
+                    MaterialTheme.typography.bodyMedium,
+            )
+
+            Text(
+                text =
+                    "Łącznie: ${formatBytes(storage.total)}",
+                style =
+                    MaterialTheme.typography.bodyMedium,
+                color =
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

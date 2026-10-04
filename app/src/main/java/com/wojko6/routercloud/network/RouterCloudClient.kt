@@ -38,6 +38,12 @@ data class RouterCloudEntry(
         get() = pathType == "Dir" || pathType == "SymlinkDir"
 }
 
+data class RouterCloudStorage(
+    val total: Long,
+    val used: Long,
+    val available: Long,
+)
+
 data class RouterCloudDirectory(
     val href: String,
     val entries: List<RouterCloudEntry>,
@@ -47,6 +53,7 @@ data class RouterCloudDirectory(
     val allowSearch: Boolean,
     val allowArchive: Boolean,
     val storagePresent: Boolean,
+    val storage: RouterCloudStorage?,
 )
 
 class RouterCloudHttpException(
@@ -548,6 +555,21 @@ class RouterCloudClient(
             storagePresent =
                 root.has("storage") &&
                     !root.isNull("storage"),
+            storage =
+                if (
+                    root.has("storage") &&
+                    !root.isNull("storage")
+                ) {
+                    root.getJSONObject("storage").let { storage ->
+                        RouterCloudStorage(
+                            total = storage.optLong("total"),
+                            used = storage.optLong("used"),
+                            available = storage.optLong("available"),
+                        )
+                    }
+                } else {
+                    null
+                },
         )
     }
 }
