@@ -974,16 +974,6 @@ private fun FilesScreen(
                         ) {
                             DropdownMenuItem(
                                 text = {
-                                    Text("Edytuj kafelki")
-                                },
-                                onClick = {
-                                    layoutMenuExpanded = false
-                                    tileEditMode = true
-                                },
-                            )
-
-                            DropdownMenuItem(
-                                text = {
                                     Text("Pokaż więcej kafelków")
                                 },
                                 trailingIcon = {
@@ -2548,49 +2538,6 @@ private fun MetroResizeHandle(
                 ),
                 strokeWidth = lineWidth,
                 cap = StrokeCap.Round,
-            )
-        }
-    }
-}
-
-
-@Composable
-private fun MetroTileSizeMenu(
-    expanded: Boolean,
-    currentSize: MetroTileSize,
-    onDismiss: () -> Unit,
-    onSizeChange: (MetroTileSize) -> Unit,
-) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-    ) {
-        Text(
-            text = "Rozmiar kafelka",
-            modifier = Modifier.padding(
-                horizontal = 12.dp,
-                vertical = 8.dp,
-            ),
-            style = MaterialTheme.typography.labelMedium,
-            color =
-                MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        MetroTileSize.values().forEach { size ->
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        text =
-                            if (size == currentSize) {
-                                "✓ ${size.displayName}"
-                            } else {
-                                size.displayName
-                            },
-                    )
-                },
-                onClick = {
-                    onSizeChange(size)
-                },
             )
         }
     }
