@@ -53,6 +53,147 @@ private fun metroTileRectanglesOverlap(
         firstBottom > secondTop
 }
 
+private fun metroTileFitsWorkspace(
+    position: MetroTilePosition,
+    size: MetroTileSize,
+    gridUnits: Int,
+    workspaceRows: Int,
+): Boolean {
+    val (
+        width,
+        height,
+    ) =
+        metroTileSpan(size)
+
+    return position.column >= 0 &&
+        position.row >= 0 &&
+        position.column + width <= gridUnits &&
+        position.row + height <= workspaceRows
+}
+
+private fun canPlaceMetroTileInWorkingLayout(
+    tileId: String,
+    position: MetroTilePosition,
+    positions: Map<String, MetroTilePosition>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+    workspaceRows: Int,
+): Boolean {
+    val tileSize =
+        sizes[tileId]
+            ?: return false
+
+    if (
+        !metroTileFitsWorkspace(
+            position = position,
+            size = tileSize,
+            gridUnits = gridUnits,
+            workspaceRows = workspaceRows,
+        )
+    ) {
+        return false
+    }
+
+    positions.forEach {
+            (otherId, otherPosition),
+        ->
+
+        if (otherId == tileId) {
+            return@forEach
+        }
+
+        val otherSize =
+            sizes[otherId]
+                ?: return false
+
+        if (
+            metroTileRectanglesOverlap(
+                firstPosition = position,
+                firstSize = tileSize,
+                secondPosition = otherPosition,
+                secondSize = otherSize,
+            )
+        ) {
+            return false
+        }
+    }
+
+    return true
+}
+
+private fun findNearestFreeMetroPositionBounded(
+    tileId: String,
+    preferredPosition: MetroTilePosition,
+    positions: Map<String, MetroTilePosition>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+    workspaceRows: Int,
+): MetroTilePosition? {
+    val tileSize =
+        sizes[tileId]
+            ?: return null
+
+    val (
+        width,
+        height,
+    ) =
+        metroTileSpan(tileSize)
+
+    val maxColumn =
+        gridUnits - width
+
+    val maxRow =
+        workspaceRows - height
+
+    if (
+        maxColumn < 0 ||
+        maxRow < 0
+    ) {
+        return null
+    }
+
+    val candidates =
+        buildList {
+            for (row in 0..maxRow) {
+                for (column in 0..maxColumn) {
+                    add(
+                        MetroTilePosition(
+                            column = column,
+                            row = row,
+                        ),
+                    )
+                }
+            }
+        }
+            .sortedWith(
+                compareBy<MetroTilePosition>(
+                    {
+                        kotlin.math.abs(
+                            it.column -
+                                preferredPosition.column,
+                        ) +
+                            kotlin.math.abs(
+                                it.row -
+                                    preferredPosition.row,
+                            )
+                    },
+                    { it.row },
+                    { it.column },
+                ),
+            )
+
+    return candidates.firstOrNull { candidate ->
+        canPlaceMetroTileInWorkingLayout(
+            tileId = tileId,
+            position = candidate,
+            positions = positions,
+            sizes = sizes,
+            gridUnits = gridUnits,
+            workspaceRows = workspaceRows,
+        )
+    }
+}
+
 internal fun resolveMetroTileLayoutChange(
     tileId: String,
     requestedPosition: MetroTilePosition,
@@ -67,16 +208,35 @@ internal fun resolveMetroTileLayoutChange(
         positions[tileId]
             ?: return null
 
-    val originalSize =
-        sizes[tileId]
-            ?: return null
+    if (sizes[tileId] == null) {
+        return null
+    }
+
+    val candidateSizes =
+        sizes +
+            (
+                tileId to
+                    requestedSize
+            )
+
+    /*
+     * Moving tile itself must fit inside the bounded workspace.
+     */
+    if (
+        !metroTileFitsWorkspace(
+            position = requestedPosition,
+            size = requestedSize,
+            gridUnits = gridUnits,
+            workspaceRows = workspaceRows,
+        )
+    ) {
+        return null
+    }
 
     /*
      * T01:
-     * Try the requested position and size directly.
-     *
-     * If the complete candidate layout is already valid,
-     * nothing else is allowed to move.
+     * If the requested layout is already valid,
+     * no other tile moves.
      */
     val directPositions =
         positions +
@@ -85,17 +245,10 @@ internal fun resolveMetroTileLayoutChange(
                     requestedPosition
             )
 
-    val directSizes =
-        sizes +
-            (
-                tileId to
-                    requestedSize
-            )
-
     if (
         validateMetroTileLayout(
             positions = directPositions,
-            sizes = directSizes,
+            sizes = candidateSizes,
             tileIds = tileIds,
             gridUnits = gridUnits,
             workspaceRows = workspaceRows,
@@ -103,13 +256,14 @@ internal fun resolveMetroTileLayoutChange(
     ) {
         return MetroTileLayoutChangeResult(
             positions = directPositions,
-            sizes = directSizes,
+            sizes = candidateSizes,
         )
     }
 
     /*
-     * Detect actual rectangle collisions with the requested
-     * geometry instead of comparing only top-left positions.
+     * Find every tile geometrically displaced by the moving tile.
+     *
+     * Sorting makes the result deterministic.
      */
     val displacedTileIds =
         tileIds
@@ -127,55 +281,109 @@ internal fun resolveMetroTileLayoutChange(
                         ?: return@filter false
 
                 metroTileRectanglesOverlap(
-                    firstPosition =
-                        requestedPosition,
-                    firstSize =
-                        requestedSize,
-                    secondPosition =
-                        otherPosition,
-                    secondSize =
-                        otherSize,
+                    firstPosition = requestedPosition,
+                    firstSize = requestedSize,
+                    secondPosition = otherPosition,
+                    secondSize = otherSize,
                 )
             }
+            .sortedWith(
+                compareBy(
+                    { positions[it]?.row ?: Int.MAX_VALUE },
+                    { positions[it]?.column ?: Int.MAX_VALUE },
+                    { it },
+                ),
+            )
 
-    /*
-     * T02 / T08 stage:
-     * exactly one displaced tile is supported.
-     *
-     * Multi-collision reflow will be implemented by a later
-     * test instead of being guessed here.
-     */
-    if (displacedTileIds.size != 1) {
+    if (displacedTileIds.isEmpty()) {
         return null
     }
 
-    val displacedTileId =
-        displacedTileIds.single()
-
     /*
-     * First reflow priority:
-     * the displaced tile tries the slot vacated by the
-     * moving tile.
+     * Atomic working copy.
+     *
+     * Nothing from this map is returned until the entire
+     * candidate layout has been resolved and validated.
      */
-    val swapPositions =
+    val workingPositions =
         positions.toMutableMap()
 
-    swapPositions[tileId] =
+    workingPositions.remove(tileId)
+
+    displacedTileIds.forEach { displacedId ->
+        workingPositions.remove(displacedId)
+    }
+
+    /*
+     * The moving tile owns the requested target.
+     */
+    workingPositions[tileId] =
         requestedPosition
 
-    swapPositions[displacedTileId] =
-        originalPosition
+    displacedTileIds.forEachIndexed {
+            index,
+            displacedId,
+        ->
 
-    val candidateSizes =
-        sizes +
-            (
-                tileId to
-                    requestedSize
-            )
+        val oldPosition =
+            positions[displacedId]
+                ?: return null
 
+        /*
+         * Priority A:
+         * first displaced tile tries the slot vacated by
+         * the moving tile.
+         */
+        val swapPosition =
+            if (index == 0) {
+                originalPosition
+            } else {
+                null
+            }
+
+        val resolvedPosition =
+            swapPosition
+                ?.takeIf { candidate ->
+                    canPlaceMetroTileInWorkingLayout(
+                        tileId = displacedId,
+                        position = candidate,
+                        positions = workingPositions,
+                        sizes = candidateSizes,
+                        gridUnits = gridUnits,
+                        workspaceRows = workspaceRows,
+                    )
+                }
+                ?: oldPosition
+                    .takeIf { candidate ->
+                        canPlaceMetroTileInWorkingLayout(
+                            tileId = displacedId,
+                            position = candidate,
+                            positions = workingPositions,
+                            sizes = candidateSizes,
+                            gridUnits = gridUnits,
+                            workspaceRows = workspaceRows,
+                        )
+                    }
+                ?: findNearestFreeMetroPositionBounded(
+                    tileId = displacedId,
+                    preferredPosition = oldPosition,
+                    positions = workingPositions,
+                    sizes = candidateSizes,
+                    gridUnits = gridUnits,
+                    workspaceRows = workspaceRows,
+                )
+                ?: return null
+
+        workingPositions[displacedId] =
+            resolvedPosition
+    }
+
+    /*
+     * Final atomic gate.
+     */
     if (
         !validateMetroTileLayout(
-            positions = swapPositions,
+            positions = workingPositions,
             sizes = candidateSizes,
             tileIds = tileIds,
             gridUnits = gridUnits,
@@ -186,7 +394,7 @@ internal fun resolveMetroTileLayoutChange(
     }
 
     return MetroTileLayoutChangeResult(
-        positions = swapPositions,
+        positions = workingPositions,
         sizes = candidateSizes,
     )
 }

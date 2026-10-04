@@ -321,4 +321,99 @@ class MetroTileLayoutResolverTest {
         )
     }
 
+
+    @Test
+    fun t07_largeOverlapsTwoMedium_reflowsAtomically() {
+        val positions =
+            mapOf(
+                "top" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                "bottom" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 2,
+                    ),
+                "large" to
+                    MetroTilePosition(
+                        column = 4,
+                        row = 0,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "top" to MetroTileSize.Medium,
+                "bottom" to MetroTileSize.Medium,
+                "large" to MetroTileSize.Large,
+            )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "large",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                requestedSize =
+                    MetroTileSize.Large,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "top",
+                        "bottom",
+                        "large",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            )
+
+        assertNotNull(result)
+
+        result!!
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 0,
+            ),
+            result.positions["large"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 0,
+            ),
+            result.positions["top"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 2,
+            ),
+            result.positions["bottom"],
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = result.positions,
+                sizes = result.sizes,
+                tileIds =
+                    listOf(
+                        "top",
+                        "bottom",
+                        "large",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
 }

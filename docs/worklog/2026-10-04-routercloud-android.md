@@ -1412,3 +1412,79 @@ Nie podpinamy jeszcze nowego resolvera do UI.
 
 Najpierw rozwijamy i testujemy czysty silnik.
 
+
+
+## Metro Tile Engine - GREEN checkpoint T07
+
+Dodano atomowy multi-reflow dla wielu displaced tiles.
+
+### T07 PASS
+
+Scenariusz:
+
+- Large znajduje sie po prawej stronie grid 8
+- dwa Medium znajduja sie pionowo po lewej
+- Large jest przeciagany na obszar obu Medium
+
+Wynik:
+
+- Large zajmuje requestedPosition
+- oba Medium zostaja wykryte jako displaced
+- reflow odbywa sie w jednej transakcji
+- pierwszy displaced preferuje pozycje zwolniona przez moving tile
+- kolejne displaced szukaja najblizszego legalnego miejsca
+- wyszukiwanie jest ograniczone do workspaceRows
+- finalny layout przechodzi validateMetroTileLayout()
+
+### Atomowosc
+
+Resolver buduje working copy layoutu.
+
+Zmiany nie sa zwracane, dopoki:
+
+- wszystkie displaced tiles nie otrzymaja legalnych pozycji
+- caly kandydat nie przejdzie validatora
+
+Jesli dowolny displaced tile nie moze zostac umieszczony:
+
+- resolver zwraca null
+- operacja ma zostac potraktowana jako REJECT
+- nie istnieje czesciowo zaakceptowany layout
+
+### Bounded search
+
+Nowe wyszukiwanie wolnej pozycji:
+
+- respektuje gridUnits
+- respektuje workspaceRows
+- nie tworzy nowych wierszy
+- jest deterministyczne
+- przy remisie preferuje mniejszy row, potem column
+
+### Regression status
+
+- T01 = PASS
+- T02 = PASS
+- T07 = PASS
+- T08 = PASS
+- T12 = PASS
+- resolver tests = PASS
+- all unit tests = PASS
+- assembleDebug = PASS
+
+### Nastepny krok
+
+T14:
+
+Brak miejsca na pelny reflow.
+
+Oczekiwane:
+
+- resolver zwraca REJECT
+- zadna czesc operacji nie zostaje zaakceptowana
+- poprzedni layout pozostaje poprawny
+
+Nowy resolver nadal nie jest podpiety do UI.
+
+Najpierw konczymy czysty Tile Engine i jego testy.
+
