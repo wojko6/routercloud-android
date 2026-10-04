@@ -61,6 +61,7 @@ import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
 import com.wojko6.routercloud.network.RouterCloudStorage
 import com.wojko6.routercloud.security.BiometricSessionController
+import com.wojko6.routercloud.ui.MetroFileIcon
 import com.wojko6.routercloud.ui.theme.RouterCloudTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1346,15 +1347,20 @@ private fun FileRow(
                 ),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = if (entry.isDirectory) {
-                    "📁 ${entry.name}"
-                } else {
-                    "📄 ${entry.name}"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                MetroFileIcon(
+                    entry = entry,
+                )
+
+                Text(
+                    text = entry.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
 
             Text(
                 text = if (entry.isDirectory) {
@@ -1462,6 +1468,7 @@ private fun queryUploadSource(
         mimeType = context.contentResolver.getType(uri),
     )
 }
+
 
 private fun supportsTextPreview(fileName: String): Boolean {
     val extension = fileName
