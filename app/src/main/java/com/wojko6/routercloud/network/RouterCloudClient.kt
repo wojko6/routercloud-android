@@ -180,6 +180,69 @@ class RouterCloudClient(
         }
     }
 
+
+    fun readTextFile(
+        path: String,
+        maxBytes: Long = 1024 * 1024,
+    ): String {
+        val request = Request.Builder()
+            .url(buildUrl(path))
+            .get()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.code == 401) {
+                throw RouterCloudAuthException()
+            }
+
+            if (!response.isSuccessful) {
+                throw RouterCloudHttpException(
+                    response.code,
+                    "Podgląd pliku: HTTP ${response.code}",
+                )
+            }
+
+            val body = response.body
+            val declaredLength = body.contentLength()
+
+            if (declaredLength > maxBytes) {
+                throw IOException(
+                    "Plik jest za duży do podglądu w aplikacji."
+                )
+            }
+
+            val charset =
+                body.contentType()?.charset(Charsets.UTF_8)
+                    ?: Charsets.UTF_8
+
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0L
+
+            body.byteStream().use { input ->
+                while (true) {
+                    val read = input.read(buffer)
+
+                    if (read == -1) {
+                        break
+                    }
+
+                    total += read
+
+                    if (total > maxBytes) {
+                        throw IOException(
+                            "Plik jest za duży do podglądu w aplikacji."
+                        )
+                    }
+
+                    output.write(buffer, 0, read)
+                }
+            }
+
+            return output.toByteArray().toString(charset)
+        }
+    }
+
     fun logout() {
         val request = Request.Builder()
             .url("$baseUrl/__routercloud/logout")

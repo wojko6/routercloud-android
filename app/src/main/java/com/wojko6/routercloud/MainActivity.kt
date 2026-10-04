@@ -17,9 +17,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -36,11 +37,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.wojko6.routercloud.network.RouterCloudClient
 import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
@@ -49,6 +53,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private data class TextPreviewState(
+    val fileName: String,
+    val remotePath: String,
+    val content: String,
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +88,8 @@ private fun RouterCloudApp() {
     var password by remember { mutableStateOf("") }
     var directory by remember { mutableStateOf<RouterCloudDirectory?>(null) }
     var currentPath by remember { mutableStateOf("") }
+    var preview by remember { mutableStateOf<TextPreviewState?>(null) }
+
     var loading by remember { mutableStateOf(false) }
     var downloadingFile by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -111,9 +123,12 @@ private fun RouterCloudApp() {
         }
     }
 
-    fun downloadAndOpen(entry: RouterCloudEntry) {
+    fun downloadAndOpen(
+        fileName: String,
+        path: String,
+    ) {
         scope.launch {
-            downloadingFile = entry.name
+            downloadingFile = fileName
             error = null
 
             try {
@@ -125,14 +140,14 @@ private fun RouterCloudApp() {
 
                     cacheDir.mkdirs()
 
-                    val safeName = entry.name
+                    val safeName = fileName
                         .substringAfterLast('/')
                         .ifBlank { "routercloud-file" }
 
                     val destination = File(cacheDir, safeName)
 
                     client.downloadFile(
-                        path = remotePath(entry),
+                        path = path,
                         destination = destination,
                     )
 
@@ -153,90 +168,149 @@ private fun RouterCloudApp() {
         }
     }
 
-    if (directory == null) {
-        LoginScreen(
-            username = username,
-            password = password,
-            loading = loading,
-            error = error,
-            onUsernameChange = {
-                username = it
-                error = null
-            },
-            onPasswordChange = {
-                password = it
-                error = null
-            },
-            onLogin = {
-                if (username.isBlank() || password.isEmpty()) {
-                    error = "Podaj login/e-mail i hasło."
-                    return@LoginScreen
+    fun openTextPreview(entry: RouterCloudEntry) {
+        val path = remotePath(entry)
+
+        scope.launch {
+            loading = true
+            error = null
+
+            try {
+                val text = withContext(Dispatchers.IO) {
+                    client.readTextFile(path)
                 }
 
-                scope.launch {
-                    loading = true
+                preview = TextPreviewState(
+                    fileName = entry.name,
+                    remotePath = path,
+                    content = text,
+                )
+            } catch (e: Exception) {
+                error = e.message ?: "Nie udało się otworzyć podglądu."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    when {
+        directory == null -> {
+            LoginScreen(
+                username = username,
+                password = password,
+                loading = loading,
+                error = error,
+                onUsernameChange = {
+                    username = it
                     error = null
-
-                    try {
-                        val result = withContext(Dispatchers.IO) {
-                            client.login(username, password)
-                            client.listDirectory()
-                        }
-
-                        password = ""
-                        currentPath = ""
-                        directory = result
-                    } catch (e: Exception) {
-                        error = e.message
-                            ?: "Nie udało się połączyć z RouterCloud."
-                    } finally {
-                        loading = false
+                },
+                onPasswordChange = {
+                    password = it
+                    error = null
+                },
+                onLogin = {
+                    if (username.isBlank() || password.isEmpty()) {
+                        error = "Podaj login/e-mail i hasło."
+                        return@LoginScreen
                     }
-                }
-            },
-        )
-    } else {
-        BackHandler(enabled = currentPath.isNotEmpty()) {
-            val parent = currentPath
-                .trim('/')
-                .substringBeforeLast('/', "")
 
-            loadDirectory(parent)
+                    scope.launch {
+                        loading = true
+                        error = null
+
+                        try {
+                            val result = withContext(Dispatchers.IO) {
+                                client.login(username, password)
+                                client.listDirectory()
+                            }
+
+                            password = ""
+                            currentPath = ""
+                            directory = result
+                        } catch (e: Exception) {
+                            error = e.message
+                                ?: "Nie udało się połączyć z RouterCloud."
+                        } finally {
+                            loading = false
+                        }
+                    }
+                },
+            )
         }
 
-        FilesScreen(
-            directory = directory!!,
-            currentPath = currentPath,
-            loading = loading,
-            downloadingFile = downloadingFile,
-            error = error,
-            onEntryClick = { entry ->
-                if (entry.isDirectory) {
-                    loadDirectory(remotePath(entry))
-                } else {
-                    downloadAndOpen(entry)
-                }
-            },
-            onBack = {
+        preview != null -> {
+            val currentPreview = preview!!
+
+            BackHandler {
+                preview = null
+            }
+
+            TextPreviewScreen(
+                preview = currentPreview,
+                downloading = downloadingFile != null,
+                error = error,
+                onBack = {
+                    preview = null
+                    error = null
+                },
+                onOpenExternal = {
+                    downloadAndOpen(
+                        fileName = currentPreview.fileName,
+                        path = currentPreview.remotePath,
+                    )
+                },
+            )
+        }
+
+        else -> {
+            BackHandler(enabled = currentPath.isNotEmpty()) {
                 val parent = currentPath
                     .trim('/')
                     .substringBeforeLast('/', "")
 
                 loadDirectory(parent)
-            },
-            onLogout = {
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        runCatching { client.logout() }
-                    }
+            }
 
-                    password = ""
-                    currentPath = ""
-                    directory = null
-                    error = null
-                }
-            },
-        )
+            FilesScreen(
+                directory = directory!!,
+                currentPath = currentPath,
+                loading = loading,
+                downloadingFile = downloadingFile,
+                error = error,
+                onEntryClick = { entry ->
+                    if (entry.isDirectory) {
+                        loadDirectory(remotePath(entry))
+                    } else if (supportsTextPreview(entry.name)) {
+                        openTextPreview(entry)
+                    } else {
+                        downloadAndOpen(
+                            fileName = entry.name,
+                            path = remotePath(entry),
+                        )
+                    }
+                },
+                onBack = {
+                    val parent = currentPath
+                        .trim('/')
+                        .substringBeforeLast('/', "")
+
+                    loadDirectory(parent)
+                },
+                onLogout = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { client.logout() }
+                        }
+
+                        password = ""
+                        currentPath = ""
+                        preview = null
+                        directory = null
+                        error = null
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -271,7 +345,6 @@ private fun LoginScreen(
 
         Text(
             text = "Połączenie szyfrowane z cloud.home.arpa",
-            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
@@ -375,7 +448,7 @@ private fun FilesScreen(
 
         if (loading) {
             Text(
-                text = "Wczytywanie katalogu…",
+                text = "Wczytywanie…",
                 modifier = Modifier.padding(20.dp),
             )
         }
@@ -419,6 +492,74 @@ private fun FilesScreen(
 }
 
 @Composable
+private fun TextPreviewScreen(
+    preview: TextPreviewState,
+    downloading: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+    onOpenExternal: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .safeDrawingPadding(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(onClick = onBack) {
+                Text("← Wstecz")
+            }
+
+            TextButton(
+                onClick = onOpenExternal,
+                enabled = !downloading,
+            ) {
+                Text(
+                    if (downloading) {
+                        "Pobieranie…"
+                    } else {
+                        "Otwórz w…"
+                    }
+                )
+            }
+        }
+
+        Text(
+            text = preview.fileName,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+
+        if (error != null) {
+            Text(
+                text = error,
+                modifier = Modifier.padding(horizontal = 20.dp),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        HorizontalDivider()
+
+        SelectionContainer {
+            Text(
+                text = preview.content,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
 private fun FileRow(
     entry: RouterCloudEntry,
     enabled: Boolean,
@@ -456,6 +597,34 @@ private fun FileRow(
     }
 }
 
+private fun supportsTextPreview(fileName: String): Boolean {
+    val extension = fileName
+        .substringAfterLast('.', "")
+        .lowercase()
+
+    return extension in setOf(
+        "txt",
+        "md",
+        "log",
+        "json",
+        "xml",
+        "yaml",
+        "yml",
+        "csv",
+        "ini",
+        "conf",
+        "cfg",
+        "properties",
+        "sh",
+        "kt",
+        "java",
+        "py",
+        "js",
+        "css",
+        "html",
+    )
+}
+
 private fun openDownloadedFile(
     context: Context,
     file: File,
@@ -466,11 +635,9 @@ private fun openDownloadedFile(
         file,
     )
 
-    val extension = file.extension.lowercase()
-
     val mimeType = MimeTypeMap
         .getSingleton()
-        .getMimeTypeFromExtension(extension)
+        .getMimeTypeFromExtension(file.extension.lowercase())
         ?: "application/octet-stream"
 
     val intent = Intent(Intent.ACTION_VIEW).apply {
