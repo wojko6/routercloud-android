@@ -566,6 +566,7 @@ Obecny klient Android:
     [PASS] Android Keystore
     [PASS] Fingerprint unlock
     [PASS] Fingerprint unlock E2E
+    [PASS] Backend permissions respected in UI
 
 ---
 
@@ -848,3 +849,47 @@ Stan:
 - BIOMETRIC_STRONG: PASS
 - Fingerprint unlock: PASS
 - Fingerprint E2E: PASS
+
+---
+
+## 26. Aktualizacja — respektowanie uprawnień backendu w UI
+
+Przeprowadzono przegląd powiązania capability flags backendu RouterCloud
+z aktualnie zaimplementowanymi operacjami Android UI.
+
+Potwierdzono:
+
+- `allowUpload`
+  - steruje widocznością akcji `Wyślij plik`
+  - steruje widocznością akcji tworzenia katalogu
+  - jest wymagane dla `Wyślij tutaj` przy Android Share Target
+
+- `allowMove`
+  - steruje dostępnością `Zmień nazwę`
+
+- `allowDelete`
+  - steruje dostępnością `Usuń`
+
+Backend dostarcza i klient parsuje również:
+
+- `allowSearch`
+- `allowArchive`
+- `storagePresent`
+
+Flagi te nie są obecnie wykorzystywane przez UI, ponieważ odpowiadające im
+funkcje nie zostały jeszcze zaimplementowane. Nie są wystawiane żadne
+nieautoryzowane akcje zastępcze.
+
+Wniosek:
+
+Aktualnie dostępne operacje destrukcyjne i modyfikujące są poprawnie
+ograniczane przez capability flags backendu.
+
+Stan:
+
+- Upload permissions: PASS
+- Create directory permissions: PASS
+- Rename permissions: PASS
+- Delete permissions: PASS
+- Android Share upload permissions: PASS
+- Backend permissions respected in UI: PASS
