@@ -187,6 +187,47 @@ class RouterCloudClient(
 
 
 
+
+    fun rename(
+        sourcePath: String,
+        destinationPath: String,
+    ) {
+        val destinationUrl = buildUrl(destinationPath)
+
+        val request = Request.Builder()
+            .url(buildUrl(sourcePath))
+            .header("Destination", destinationUrl.toString())
+            .method("MOVE", null)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            when (response.code) {
+                204 -> Unit
+
+                401 -> throw RouterCloudAuthException()
+
+                409 -> throw RouterCloudHttpException(
+                    response.code,
+                    "Element o tej nazwie już istnieje.",
+                )
+
+                403 -> throw RouterCloudHttpException(
+                    response.code,
+                    "Zmiana nazwy w tej lokalizacji jest niedozwolona.",
+                )
+
+                else -> {
+                    if (!response.isSuccessful) {
+                        throw RouterCloudHttpException(
+                            response.code,
+                            "Zmiana nazwy: HTTP ${response.code}",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun createDirectory(path: String) {
         val request = Request.Builder()
             .url(buildUrl(path))

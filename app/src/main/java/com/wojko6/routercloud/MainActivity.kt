@@ -15,6 +15,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +31,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -42,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -125,6 +129,7 @@ private fun RouterCloudApp(
     var downloadingFile by remember { mutableStateOf<String?>(null) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
+    var renameEntry by remember { mutableStateOf<RouterCloudEntry?>(null) }
     var pendingSharedUri by remember {
         mutableStateOf(initialSharedUri)
     }
@@ -156,6 +161,68 @@ private fun RouterCloudApp(
                 directory = result
             } catch (e: Exception) {
                 error = e.message ?: "Nie udało się pobrać katalogu."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun renameItem(
+        entry: RouterCloudEntry,
+        newName: String,
+    ) {
+        val cleanName = newName.trim()
+        val oldName = entry.name
+            .trim('/')
+            .substringAfterLast('/')
+
+        if (
+            cleanName.isEmpty() ||
+            cleanName == "." ||
+            cleanName == ".." ||
+            '/' in cleanName ||
+            '\\' in cleanName
+        ) {
+            error = "Nieprawidłowa nazwa."
+            return
+        }
+
+        if (cleanName == oldName) {
+            return
+        }
+
+        val alreadyExists = directory
+            ?.entries
+            ?.any {
+                it.name
+                    .trim('/')
+                    .substringAfterLast('/') == cleanName
+            }
+            ?: false
+
+        if (alreadyExists) {
+            error = "Element „$cleanName” już istnieje."
+            return
+        }
+
+        scope.launch {
+            loading = true
+            error = null
+
+            try {
+                val refreshed = withContext(Dispatchers.IO) {
+                    client.rename(
+                        sourcePath = remotePath(entry),
+                        destinationPath = joinRemotePath(cleanName),
+                    )
+
+                    client.listDirectory(currentPath)
+                }
+
+                directory = refreshed
+            } catch (e: Exception) {
+                error = e.message
+                    ?: "Nie udało się zmienić nazwy."
             } finally {
                 loading = false
             }
@@ -436,6 +503,10 @@ private fun RouterCloudApp(
                 onCreateDirectory = {
                     showCreateDirectoryDialog = true
                 },
+                onRename = { entry ->
+                    error = null
+                    renameEntry = entry
+                },
                 onUploadSharedHere = {
                     pendingSharedUri?.let { uri ->
                         uploadUri(
@@ -486,6 +557,24 @@ private fun RouterCloudApp(
                     onCreate = { name ->
                         showCreateDirectoryDialog = false
                         createDirectory(name)
+                    },
+                )
+            }
+
+            renameEntry?.let { entry ->
+                RenameDialog(
+                    currentName = entry.name
+                        .trim('/')
+                        .substringAfterLast('/'),
+                    onDismiss = {
+                        renameEntry = null
+                    },
+                    onRename = { newName ->
+                        renameEntry = null
+                        renameItem(
+                            entry = entry,
+                            newName = newName,
+                        )
                     },
                 )
             }
@@ -581,6 +670,7 @@ private fun FilesScreen(
     error: String?,
     onUpload: () -> Unit,
     onCreateDirectory: () -> Unit,
+    onRename: (RouterCloudEntry) -> Unit,
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
@@ -724,8 +814,12 @@ private fun FilesScreen(
                 FileRow(
                     entry = entry,
                     enabled = !busy,
+                    allowRename = directory.allowMove,
                     onClick = {
                         onEntryClick(entry)
+                    },
+                    onRename = {
+                        onRename(entry)
                     },
                 )
 
@@ -855,40 +949,141 @@ private fun CreateDirectoryDialog(
 }
 
 @Composable
+private fun RenameDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+) {
+    var name by remember(currentName) {
+        mutableStateOf(currentName)
+    }
+
+    val cleanName = name.trim()
+
+    val valid =
+        cleanName.isNotEmpty() &&
+            cleanName != "." &&
+            cleanName != ".." &&
+            cleanName != currentName &&
+            !cleanName.contains('/') &&
+            !cleanName.contains('\\')
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Zmień nazwę")
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = {
+                    Text("Nowa nazwa")
+                },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onRename(cleanName)
+                },
+                enabled = valid,
+            ) {
+                Text("Zmień")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+            ) {
+                Text("Anuluj")
+            }
+        },
+    )
+}
+
+@Composable
 private fun FileRow(
     entry: RouterCloudEntry,
     enabled: Boolean,
+    allowRename: Boolean,
     onClick: () -> Unit,
+    onRename: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                enabled = enabled,
-                onClick = onClick,
-            )
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            text = if (entry.isDirectory) {
-                "📁 ${entry.name}"
-            } else {
-                "📄 ${entry.name}"
-            },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Medium,
-        )
+    var menuExpanded by remember {
+        mutableStateOf(false)
+    }
 
-        Text(
-            text = if (entry.isDirectory) {
-                "Katalog"
-            } else {
-                formatBytes(entry.size)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(
+                    enabled = enabled,
+                    onClick = onClick,
+                )
+                .padding(
+                    start = 20.dp,
+                    top = 14.dp,
+                    bottom = 14.dp,
+                    end = 8.dp,
+                ),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = if (entry.isDirectory) {
+                    "📁 ${entry.name}"
+                } else {
+                    "📄 ${entry.name}"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+            )
+
+            Text(
+                text = if (entry.isDirectory) {
+                    "Katalog"
+                } else {
+                    formatBytes(entry.size)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (allowRename) {
+            Box {
+                TextButton(
+                    onClick = {
+                        menuExpanded = true
+                    },
+                    enabled = enabled,
+                ) {
+                    Text("⋮")
+                }
+
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = {
+                        menuExpanded = false
+                    },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text("Zmień nazwę")
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onRename()
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
