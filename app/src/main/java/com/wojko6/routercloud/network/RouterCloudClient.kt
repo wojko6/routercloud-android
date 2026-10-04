@@ -4,6 +4,7 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -129,9 +130,22 @@ class RouterCloudClient(
         }
     }
 
-    fun listRoot(): RouterCloudDirectory {
+    fun listDirectory(path: String = ""): RouterCloudDirectory {
+        val urlBuilder = baseUrl.toHttpUrl()
+            .newBuilder()
+            .encodedPath("/")
+
+        path.trim('/')
+            .split('/')
+            .filter { it.isNotEmpty() }
+            .forEach { urlBuilder.addPathSegment(it) }
+
+        val url = urlBuilder
+            .addQueryParameter("json", null)
+            .build()
+
         val request = Request.Builder()
-            .url("$baseUrl/?json")
+            .url(url)
             .get()
             .build()
 

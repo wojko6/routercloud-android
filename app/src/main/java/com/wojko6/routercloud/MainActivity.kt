@@ -2,8 +2,10 @@ package com.wojko6.routercloud
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -66,9 +68,42 @@ private fun RouterCloudApp() {
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var directory by remember { mutableStateOf<RouterCloudDirectory?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+
+    var directory by remember {
+        mutableStateOf<RouterCloudDirectory?>(null)
+    }
+
+    var currentPath by remember {
+        mutableStateOf("")
+    }
+
+    var loading by remember {
+        mutableStateOf(false)
+    }
+
+    var error by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    fun loadDirectory(path: String) {
+        scope.launch {
+            loading = true
+            error = null
+
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    client.listDirectory(path)
+                }
+
+                currentPath = path
+                directory = result
+            } catch (e: Exception) {
+                error = e.message ?: "Nie udało się pobrać katalogu."
+            } finally {
+                loading = false
+            }
+        }
+    }
 
     if (directory == null) {
         LoginScreen(
@@ -97,13 +132,15 @@ private fun RouterCloudApp() {
                     try {
                         val result = withContext(Dispatchers.IO) {
                             client.login(username, password)
-                            client.listRoot()
+                            client.listDirectory()
                         }
 
                         password = ""
+                        currentPath = ""
                         directory = result
                     } catch (e: Exception) {
-                        error = e.message ?: "Nie udało się połączyć z RouterCloud."
+                        error = e.message
+                            ?: "Nie udało się połączyć z RouterCloud."
                     } finally {
                         loading = false
                     }
@@ -111,8 +148,35 @@ private fun RouterCloudApp() {
             },
         )
     } else {
+        BackHandler(enabled = currentPath.isNotEmpty()) {
+            val parent = currentPath
+                .trim('/')
+                .substringBeforeLast('/', "")
+            loadDirectory(parent)
+        }
+
         FilesScreen(
             directory = directory!!,
+            currentPath = currentPath,
+            loading = loading,
+            error = error,
+            onOpenDirectory = { entry ->
+                val nextPath = listOf(
+                    currentPath.trim('/'),
+                    entry.name.trim('/'),
+                )
+                    .filter { it.isNotEmpty() }
+                    .joinToString("/")
+
+                loadDirectory(nextPath)
+            },
+            onBack = {
+                val parent = currentPath
+                    .trim('/')
+                    .substringBeforeLast('/', "")
+
+                loadDirectory(parent)
+            },
             onLogout = {
                 scope.launch {
                     withContext(Dispatchers.IO) {
@@ -120,6 +184,7 @@ private fun RouterCloudApp() {
                     }
 
                     password = ""
+                    currentPath = ""
                     directory = null
                     error = null
                 }
@@ -189,7 +254,6 @@ private fun LoginScreen(
             Text(
                 text = error,
                 color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
             )
         }
 
@@ -210,6 +274,11 @@ private fun LoginScreen(
 @Composable
 private fun FilesScreen(
     directory: RouterCloudDirectory,
+    currentPath: String,
+    loading: Boolean,
+    error: String?,
+    onOpenDirectory: (RouterCloudEntry) -> Unit,
+    onBack: () -> Unit,
     onLogout: () -> Unit,
 ) {
     Column(
@@ -220,7 +289,7 @@ private fun FilesScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column {
@@ -228,6 +297,15 @@ private fun FilesScreen(
                     text = "RouterCloud",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
+                )
+
+                Text(
+                    text = if (currentPath.isEmpty()) {
+                        "/"
+                    } else {
+                        "/$currentPath"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Text(
@@ -241,6 +319,30 @@ private fun FilesScreen(
             }
         }
 
+        if (currentPath.isNotEmpty()) {
+            TextButton(
+                onClick = onBack,
+                modifier = Modifier.padding(horizontal = 8.dp),
+                enabled = !loading,
+            ) {
+                Text("← Wstecz")
+            }
+        }
+
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.padding(20.dp),
+            )
+        }
+
+        if (error != null) {
+            Text(
+                text = error,
+                modifier = Modifier.padding(20.dp),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
         HorizontalDivider()
 
         LazyColumn(
@@ -250,7 +352,15 @@ private fun FilesScreen(
                 items = directory.entries,
                 key = { "${it.pathType}:${it.name}" },
             ) { entry ->
-                FileRow(entry)
+                FileRow(
+                    entry = entry,
+                    onClick = {
+                        if (entry.isDirectory) {
+                            onOpenDirectory(entry)
+                        }
+                    },
+                )
+
                 HorizontalDivider()
             }
         }
@@ -258,15 +368,26 @@ private fun FilesScreen(
 }
 
 @Composable
-private fun FileRow(entry: RouterCloudEntry) {
+private fun FileRow(
+    entry: RouterCloudEntry,
+    onClick: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(
+                enabled = entry.isDirectory,
+                onClick = onClick,
+            )
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = entry.name,
+            text = if (entry.isDirectory) {
+                "📁 ${entry.name}"
+            } else {
+                entry.name
+            },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
         )
