@@ -186,6 +186,36 @@ class RouterCloudClient(
 
 
 
+
+    fun createDirectory(path: String) {
+        val request = Request.Builder()
+            .url(buildUrl(path))
+            .method("MKCOL", null)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            when (response.code) {
+                201 -> Unit
+
+                401 -> throw RouterCloudAuthException()
+
+                405 -> throw RouterCloudHttpException(
+                    response.code,
+                    "Katalog już istnieje.",
+                )
+
+                else -> {
+                    if (!response.isSuccessful) {
+                        throw RouterCloudHttpException(
+                            response.code,
+                            "Tworzenie katalogu: HTTP ${response.code}",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun uploadFile(
         path: String,
         inputStreamProvider: () -> InputStream,

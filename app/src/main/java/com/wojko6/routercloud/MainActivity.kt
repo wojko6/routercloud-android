@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -123,6 +124,7 @@ private fun RouterCloudApp(
     var loading by remember { mutableStateOf(false) }
     var downloadingFile by remember { mutableStateOf<String?>(null) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
+    var showCreateDirectoryDialog by remember { mutableStateOf(false) }
     var pendingSharedUri by remember {
         mutableStateOf(initialSharedUri)
     }
@@ -154,6 +156,55 @@ private fun RouterCloudApp(
                 directory = result
             } catch (e: Exception) {
                 error = e.message ?: "Nie udało się pobrać katalogu."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun createDirectory(name: String) {
+        val cleanName = name.trim()
+
+        if (
+            cleanName.isEmpty() ||
+            cleanName == "." ||
+            cleanName == ".." ||
+            '/' in cleanName ||
+            '\\' in cleanName
+        ) {
+            error = "Nieprawidłowa nazwa katalogu."
+            return
+        }
+
+        val alreadyExists = directory
+            ?.entries
+            ?.any {
+                it.name.substringAfterLast('/') == cleanName
+            }
+            ?: false
+
+        if (alreadyExists) {
+            error = "Element „$cleanName” już istnieje."
+            return
+        }
+
+        scope.launch {
+            loading = true
+            error = null
+
+            try {
+                val refreshed = withContext(Dispatchers.IO) {
+                    client.createDirectory(
+                        joinRemotePath(cleanName)
+                    )
+
+                    client.listDirectory(currentPath)
+                }
+
+                directory = refreshed
+            } catch (e: Exception) {
+                error = e.message
+                    ?: "Nie udało się utworzyć katalogu."
             } finally {
                 loading = false
             }
@@ -382,6 +433,9 @@ private fun RouterCloudApp(
                 onUpload = {
                     filePicker.launch(arrayOf("*/*"))
                 },
+                onCreateDirectory = {
+                    showCreateDirectoryDialog = true
+                },
                 onUploadSharedHere = {
                     pendingSharedUri?.let { uri ->
                         uploadUri(
@@ -423,6 +477,18 @@ private fun RouterCloudApp(
                     }
                 },
             )
+
+            if (showCreateDirectoryDialog) {
+                CreateDirectoryDialog(
+                    onDismiss = {
+                        showCreateDirectoryDialog = false
+                    },
+                    onCreate = { name ->
+                        showCreateDirectoryDialog = false
+                        createDirectory(name)
+                    },
+                )
+            }
         }
     }
 }
@@ -514,6 +580,7 @@ private fun FilesScreen(
     pendingSharedFile: Boolean,
     error: String?,
     onUpload: () -> Unit,
+    onCreateDirectory: () -> Unit,
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
@@ -582,6 +649,13 @@ private fun FilesScreen(
                     enabled = !busy,
                 ) {
                     Text("↑ Wyślij plik")
+                }
+
+                TextButton(
+                    onClick = onCreateDirectory,
+                    enabled = !busy,
+                ) {
+                    Text("＋ Katalog")
                 }
             }
         }
@@ -727,6 +801,57 @@ private fun TextPreviewScreen(
             )
         }
     }
+}
+
+@Composable
+private fun CreateDirectoryDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+
+    val cleanName = name.trim()
+
+    val valid =
+        cleanName.isNotEmpty() &&
+            cleanName != "." &&
+            cleanName != ".." &&
+            !cleanName.contains('/') &&
+            !cleanName.contains('\\')
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Nowy katalog")
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = {
+                    Text("Nazwa katalogu")
+                },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onCreate(cleanName)
+                },
+                enabled = valid,
+            ) {
+                Text("Utwórz")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+            ) {
+                Text("Anuluj")
+            }
+        },
+    )
 }
 
 @Composable
