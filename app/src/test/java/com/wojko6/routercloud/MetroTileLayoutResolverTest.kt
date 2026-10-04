@@ -416,4 +416,95 @@ class MetroTileLayoutResolverTest {
         )
     }
 
+
+    @Test
+    fun t14_noSpaceForReflow_rejectsEntireMove() {
+        val positions =
+            mapOf(
+                "large" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                "moving" to
+                    MetroTilePosition(
+                        column = 4,
+                        row = 0,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "large" to MetroTileSize.Large,
+                "moving" to MetroTileSize.Medium,
+            )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "large",
+                        "moving",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            ),
+        )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "moving",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 3,
+                        row = 0,
+                    ),
+                requestedSize =
+                    MetroTileSize.Medium,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "large",
+                        "moving",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            )
+
+        assertNull(result)
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 0,
+            ),
+            positions["large"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 0,
+            ),
+            positions["moving"],
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "large",
+                        "moving",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
 }

@@ -1488,3 +1488,60 @@ Nowy resolver nadal nie jest podpiety do UI.
 
 Najpierw konczymy czysty Tile Engine i jego testy.
 
+
+
+## Metro Tile Engine - GREEN checkpoint T14
+
+### T14 PASS
+
+Przetestowano sytuacje, w ktorej moving tile wypiera kafelek,
+ale w ograniczonym workspace nie istnieje miejsce na pelny reflow.
+
+Wynik:
+
+- resolver zwraca null
+- operacja jest REJECT
+- poprzedni layout pozostaje niezmieniony
+- nie istnieje czesciowo zaakceptowany reflow
+- workspaceRows = 4 pozostaje twarda granica
+- validateMetroTileLayout() poprzedniego layoutu nadal = PASS
+
+### Aktualny status Tile Engine
+
+- T01 = PASS
+- T02 = PASS
+- T07 = PASS
+- T08 = PASS
+- T12 = PASS
+- T14 = PASS
+- resolver tests = PASS
+- all unit tests = PASS
+- assembleDebug = PASS
+
+### Potwierdzone wlasciwosci
+
+- ruch na wolne miejsce
+- naturalny swap
+- geometryczne wykrywanie kolizji
+- multi-collision reflow
+- bounded nearest-free search
+- brak tworzenia dodatkowych wierszy
+- atomowe ACCEPT / REJECT
+- finalny validator przed ACCEPT
+
+### Nastepny etap
+
+Resize.
+
+Resize musi korzystac z tego samego:
+
+- resolveMetroTileLayoutChange()
+- validateMetroTileLayout()
+- bounded workspace
+- atomowego reflow
+
+Stary applyMetroTileSizeChange() nadal nie jest migrowany.
+
+Najpierw tworzymy testy resize T15-T18.
+Dopiero potem podpinamy resolver do UI.
+
