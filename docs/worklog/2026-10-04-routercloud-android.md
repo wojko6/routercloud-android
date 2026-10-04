@@ -1338,3 +1338,77 @@ Najpierw:
 - persistence
 - dopiero potem nowe kafelki lub funkcje.
 
+
+
+## Metro Tile Engine - GREEN checkpoint T08
+
+Stan po implementacji geometrycznych kolizji jednego displaced tile.
+
+### Testy resolvera
+
+T01 PASS
+
+- Medium -> wolny target
+- moving tile trafia dokladnie w requestedPosition
+- pozostale kafelki nie zmieniaja pozycji
+
+T02 PASS
+
+- Medium -> drugi Medium
+- naturalny swap
+- displaced tile trafia w zwolnione miejsce moving tile
+
+T08 PASS
+
+- czesciowe nachodzenie Medium na Medium
+- kolizja jest wykrywana geometrycznie
+- nie jest wymagane identyczne column,row
+- displaced tile trafia w poprzednie miejsce moving tile
+- finalny layout przechodzi validator
+
+T12 PASS
+
+- ruch ponizej workspaceRows = 4
+- resolver zwraca REJECT
+- nie powstaja dodatkowe wiersze
+
+### Regression status
+
+- T01 = PASS
+- T02 = PASS
+- T08 = PASS
+- T12 = PASS
+- wszystkie unit testy = PASS
+- assembleDebug = PASS
+
+### Implementacja
+
+Nowy resolver:
+
+- app/src/main/java/com/wojko6/routercloud/MetroTileResolver.kt
+- resolveMetroTileLayoutChange()
+
+Nowy resolver uzywa:
+
+- rzeczywistego rectangle overlap
+- validateMetroTileLayout()
+- jawnego gridUnits
+- jawnego workspaceRows
+
+Na tym etapie resolver obsluguje maksymalnie jeden displaced tile.
+
+Wiele jednoczesnych kolizji nadal nie jest zaimplementowane.
+
+### Nastepny krok
+
+Nastepny etap TDD:
+
+- Wide lub Large nachodzi jednoczesnie na dwa kafelki
+- caly reflow musi byc atomowy
+- albo wszystkie displaced tiles znajda legalne pozycje
+- albo caly ruch zostanie REJECT
+
+Nie podpinamy jeszcze nowego resolvera do UI.
+
+Najpierw rozwijamy i testujemy czysty silnik.
+

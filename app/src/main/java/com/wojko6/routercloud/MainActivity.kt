@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -52,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -60,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
@@ -67,6 +70,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -948,53 +952,43 @@ private fun FilesScreen(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (tileEditMode) {
+                Box {
                     TextButton(
                         onClick = {
-                            tileEditMode = false
+                            layoutMenuExpanded = true
                         },
                     ) {
-                        Text("Gotowe")
+                        Text("Układ")
                     }
-                } else {
-                    Box {
-                        TextButton(
-                            onClick = {
-                                layoutMenuExpanded = true
-                            },
-                        ) {
-                            Text("Układ")
-                        }
 
-                        DropdownMenu(
-                            expanded = layoutMenuExpanded,
-                            onDismissRequest = {
+                    DropdownMenu(
+                        expanded = layoutMenuExpanded,
+                        onDismissRequest = {
+                            layoutMenuExpanded = false
+                        },
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("Pokaż więcej kafelków")
+                            },
+                            trailingIcon = {
+                                Switch(
+                                    checked = showMoreTiles,
+                                    onCheckedChange = null,
+                                )
+                            },
+                            onClick = {
+                                showMoreTiles =
+                                    !showMoreTiles
+
+                                saveMetroShowMoreTiles(
+                                    context,
+                                    showMoreTiles,
+                                )
+
                                 layoutMenuExpanded = false
                             },
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text("Pokaż więcej kafelków")
-                                },
-                                trailingIcon = {
-                                    Switch(
-                                        checked = showMoreTiles,
-                                        onCheckedChange = null,
-                                    )
-                                },
-                                onClick = {
-                                    showMoreTiles =
-                                        !showMoreTiles
-
-                                    saveMetroShowMoreTiles(
-                                        context,
-                                        showMoreTiles,
-                                    )
-
-                                    layoutMenuExpanded = false
-                                },
-                            )
-                        }
+                        )
                     }
                 }
 
@@ -1128,11 +1122,15 @@ private const val METRO_TILE_STORAGE =
 private const val METRO_SHOW_MORE_TILES =
     "show_more_tiles"
 
+private const val METRO_WORKSPACE_ROWS =
+    4
+
+
 private const val METRO_TILE_ORDER =
     "tile_order"
 
 
-private enum class MetroTileSize(
+internal enum class MetroTileSize(
     val displayName: String,
 ) {
     Small("Mały"),
@@ -1230,6 +1228,664 @@ private fun moveMetroTile(
     )
 
     return result
+}
+
+
+internal data class MetroTilePosition(
+    val column: Int,
+    val row: Int,
+)
+
+
+internal fun metroTileSpan(
+    size: MetroTileSize,
+): Pair<Int, Int> =
+    when (size) {
+        MetroTileSize.Small ->
+            1 to 1
+
+        MetroTileSize.Medium ->
+            2 to 2
+
+        MetroTileSize.Wide ->
+            4 to 2
+
+        MetroTileSize.Large ->
+            4 to 4
+    }
+
+
+private fun metroTilePositionsPreferenceKey(
+    gridUnits: Int,
+): String =
+    "tile_positions_v2_$gridUnits"
+
+
+private fun loadMetroTilePositions(
+    context: Context,
+    gridUnits: Int,
+): Map<String, MetroTilePosition>? {
+    val raw =
+        context
+            .getSharedPreferences(
+                METRO_TILE_PREFS,
+                Context.MODE_PRIVATE,
+            )
+            .getString(
+                metroTilePositionsPreferenceKey(
+                    gridUnits,
+                ),
+                null,
+            )
+            ?: return null
+
+    val allowed =
+        defaultMetroTileOrder().toSet()
+
+    return raw
+        .split(";")
+        .mapNotNull { entry ->
+            val parts =
+                entry.split(":")
+
+            if (parts.size != 3) {
+                return@mapNotNull null
+            }
+
+            val tileId =
+                parts[0]
+
+            val column =
+                parts[1].toIntOrNull()
+
+            val row =
+                parts[2].toIntOrNull()
+
+            if (
+                tileId !in allowed ||
+                column == null ||
+                row == null
+            ) {
+                null
+            } else {
+                tileId to
+                    MetroTilePosition(
+                        column = column,
+                        row = row,
+                    )
+            }
+        }
+        .toMap()
+}
+
+
+private fun saveMetroTilePositions(
+    context: Context,
+    gridUnits: Int,
+    positions: Map<String, MetroTilePosition>,
+) {
+    val encoded =
+        positions.entries.joinToString(";") {
+                (tileId, position),
+            ->
+
+            "$tileId:${position.column}:${position.row}"
+        }
+
+    context
+        .getSharedPreferences(
+            METRO_TILE_PREFS,
+            Context.MODE_PRIVATE,
+        )
+        .edit()
+        .putString(
+            metroTilePositionsPreferenceKey(
+                gridUnits,
+            ),
+            encoded,
+        )
+        .apply()
+}
+
+
+internal fun validateMetroTileLayout(
+    positions: Map<String, MetroTilePosition>,
+    sizes: Map<String, MetroTileSize>,
+    tileIds: Collection<String>,
+    gridUnits: Int,
+    workspaceRows: Int = METRO_WORKSPACE_ROWS,
+): Boolean {
+    if (
+        gridUnits <= 0 ||
+        workspaceRows <= 0
+    ) {
+        return false
+    }
+
+    /*
+     * Every tile participating in the layout must have
+     * both a position and a size.
+     */
+    if (
+        tileIds.any { tileId ->
+            tileId !in positions ||
+                tileId !in sizes
+        }
+    ) {
+        return false
+    }
+
+    /*
+     * No unknown / duplicated logical layout state.
+     *
+     * Map keys are already unique, but positions for tiles
+     * outside tileIds are intentionally ignored because
+     * capability-dependent tiles may currently be hidden.
+     */
+    tileIds.forEach { tileId ->
+        val position =
+            positions[tileId]
+                ?: return false
+
+        val size =
+            sizes[tileId]
+                ?: return false
+
+        val (
+            widthUnits,
+            heightUnits,
+        ) =
+            metroTileSpan(size)
+
+        if (
+            position.column < 0 ||
+            position.row < 0 ||
+            position.column +
+                widthUnits >
+                gridUnits ||
+            position.row +
+                heightUnits >
+                workspaceRows
+        ) {
+            return false
+        }
+    }
+
+    /*
+     * Pairwise collision test.
+     */
+    val ids =
+        tileIds.toList()
+
+    for (
+        firstIndex in
+        0 until ids.size
+    ) {
+        val firstId =
+            ids[firstIndex]
+
+        val firstPosition =
+            positions[firstId]
+                ?: return false
+
+        val firstSize =
+            sizes[firstId]
+                ?: return false
+
+        val (
+            firstWidth,
+            firstHeight,
+        ) =
+            metroTileSpan(firstSize)
+
+        val firstLeft =
+            firstPosition.column
+
+        val firstTop =
+            firstPosition.row
+
+        val firstRight =
+            firstLeft + firstWidth
+
+        val firstBottom =
+            firstTop + firstHeight
+
+        for (
+            secondIndex in
+            firstIndex + 1 until ids.size
+        ) {
+            val secondId =
+                ids[secondIndex]
+
+            val secondPosition =
+                positions[secondId]
+                    ?: return false
+
+            val secondSize =
+                sizes[secondId]
+                    ?: return false
+
+            val (
+                secondWidth,
+                secondHeight,
+            ) =
+                metroTileSpan(secondSize)
+
+            val secondLeft =
+                secondPosition.column
+
+            val secondTop =
+                secondPosition.row
+
+            val secondRight =
+                secondLeft + secondWidth
+
+            val secondBottom =
+                secondTop + secondHeight
+
+            val overlaps =
+                firstLeft < secondRight &&
+                    firstRight > secondLeft &&
+                    firstTop < secondBottom &&
+                    firstBottom > secondTop
+
+            if (overlaps) {
+                return false
+            }
+        }
+    }
+
+    return true
+}
+
+
+private fun canPlaceMetroTile(
+    tileId: String,
+    position: MetroTilePosition,
+    positions: Map<String, MetroTilePosition>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+): Boolean {
+    val size =
+        sizes[tileId]
+            ?: MetroTileSize.Small
+
+    val (width, height) =
+        metroTileSpan(size)
+
+    if (
+        position.column < 0 ||
+        position.row < 0 ||
+        position.column + width > gridUnits
+    ) {
+        return false
+    }
+
+    val left =
+        position.column
+
+    val top =
+        position.row
+
+    val right =
+        left + width
+
+    val bottom =
+        top + height
+
+    positions.forEach {
+            (otherId, otherPosition),
+        ->
+
+        if (otherId == tileId) {
+            return@forEach
+        }
+
+        val otherSize =
+            sizes[otherId]
+                ?: MetroTileSize.Small
+
+        val (otherWidth, otherHeight) =
+            metroTileSpan(otherSize)
+
+        val otherLeft =
+            otherPosition.column
+
+        val otherTop =
+            otherPosition.row
+
+        val otherRight =
+            otherLeft + otherWidth
+
+        val otherBottom =
+            otherTop + otherHeight
+
+        val overlaps =
+            left < otherRight &&
+                right > otherLeft &&
+                top < otherBottom &&
+                bottom > otherTop
+
+        if (overlaps) {
+            return false
+        }
+    }
+
+    return true
+}
+
+
+private fun buildPackedMetroTilePositions(
+    order: List<String>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+): Map<String, MetroTilePosition> {
+    val result =
+        linkedMapOf<String, MetroTilePosition>()
+
+    order.forEach { tileId ->
+        val size =
+            sizes[tileId]
+                ?: MetroTileSize.Small
+
+        val (width, _) =
+            metroTileSpan(size)
+
+        var row = 0
+        var placed = false
+
+        while (!placed) {
+            for (
+                column in
+                0..(gridUnits - width)
+            ) {
+                val candidate =
+                    MetroTilePosition(
+                        column = column,
+                        row = row,
+                    )
+
+                if (
+                    canPlaceMetroTile(
+                        tileId = tileId,
+                        position = candidate,
+                        positions = result,
+                        sizes = sizes,
+                        gridUnits = gridUnits,
+                    )
+                ) {
+                    result[tileId] =
+                        candidate
+
+                    placed = true
+                    break
+                }
+            }
+
+            if (!placed) {
+                row += 1
+            }
+        }
+    }
+
+    return result
+}
+
+
+private fun findNearestFreeMetroTilePosition(
+    tileId: String,
+    preferred: MetroTilePosition,
+    positions: Map<String, MetroTilePosition>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+): MetroTilePosition {
+    val size =
+        sizes[tileId]
+            ?: MetroTileSize.Small
+
+    val (width, _) =
+        metroTileSpan(size)
+
+    val maxColumn =
+        gridUnits - width
+
+    var radius = 0
+
+    while (true) {
+        val firstRow =
+            maxOf(
+                0,
+                preferred.row - radius,
+            )
+
+        val lastRow =
+            preferred.row + radius
+
+        for (row in firstRow..lastRow) {
+            for (column in 0..maxColumn) {
+                val distance =
+                    kotlin.math.abs(
+                        column - preferred.column,
+                    ) +
+                        kotlin.math.abs(
+                            row - preferred.row,
+                        )
+
+                if (distance != radius) {
+                    continue
+                }
+
+                val candidate =
+                    MetroTilePosition(
+                        column = column,
+                        row = row,
+                    )
+
+                if (
+                    canPlaceMetroTile(
+                        tileId = tileId,
+                        position = candidate,
+                        positions = positions,
+                        sizes = sizes,
+                        gridUnits = gridUnits,
+                    )
+                ) {
+                    return candidate
+                }
+            }
+        }
+
+        radius += 1
+    }
+}
+
+
+private fun metroTilesOverlap(
+    firstId: String,
+    firstPosition: MetroTilePosition,
+    secondId: String,
+    secondPosition: MetroTilePosition,
+    sizes: Map<String, MetroTileSize>,
+): Boolean {
+    val firstSize =
+        sizes[firstId]
+            ?: MetroTileSize.Small
+
+    val secondSize =
+        sizes[secondId]
+            ?: MetroTileSize.Small
+
+    val (firstWidth, firstHeight) =
+        metroTileSpan(firstSize)
+
+    val (secondWidth, secondHeight) =
+        metroTileSpan(secondSize)
+
+    val firstLeft =
+        firstPosition.column
+
+    val firstTop =
+        firstPosition.row
+
+    val firstRight =
+        firstLeft + firstWidth
+
+    val firstBottom =
+        firstTop + firstHeight
+
+    val secondLeft =
+        secondPosition.column
+
+    val secondTop =
+        secondPosition.row
+
+    val secondRight =
+        secondLeft + secondWidth
+
+    val secondBottom =
+        secondTop + secondHeight
+
+    return firstLeft < secondRight &&
+        firstRight > secondLeft &&
+        firstTop < secondBottom &&
+        firstBottom > secondTop
+}
+
+
+private fun isMetroTileInsideGrid(
+    tileId: String,
+    position: MetroTilePosition,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+): Boolean {
+    val tileSize =
+        sizes[tileId]
+            ?: MetroTileSize.Small
+
+    val (width, _) =
+        metroTileSpan(tileSize)
+
+    return position.column >= 0 &&
+        position.row >= 0 &&
+        position.column + width <= gridUnits
+}
+
+
+private fun resolveMetroTileMove(
+    movingId: String,
+    target: MetroTilePosition,
+    positions: Map<String, MetroTilePosition>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+): Map<String, MetroTilePosition>? {
+
+    if (
+        !isMetroTileInsideGrid(
+            tileId = movingId,
+            position = target,
+            sizes = sizes,
+            gridUnits = gridUnits,
+        )
+    ) {
+        return null
+    }
+
+    val previousMovingPosition =
+        positions[movingId]
+            ?: target
+
+    val displaced =
+        positions
+            .filter { (tileId, position) ->
+                tileId != movingId &&
+                    metroTilesOverlap(
+                        firstId = movingId,
+                        firstPosition = target,
+                        secondId = tileId,
+                        secondPosition = position,
+                        sizes = sizes,
+                    )
+            }
+            .entries
+            .sortedWith(
+                compareBy(
+                    { it.value.row },
+                    { it.value.column },
+                ),
+            )
+
+    val working =
+        positions.toMutableMap()
+
+    /*
+     * Remove moving tile and all tiles which it is about
+     * to displace. This gives us clean free-space calculation.
+     */
+    working.remove(movingId)
+
+    displaced.forEach { entry ->
+        working.remove(entry.key)
+    }
+
+    /*
+     * Moving tile owns the requested slot.
+     */
+    working[movingId] =
+        target
+
+    displaced.forEachIndexed {
+            index,
+            entry,
+        ->
+
+        val displacedId =
+            entry.key
+
+        val oldPosition =
+            entry.value
+
+        /*
+         * First displaced tile prefers the slot just vacated
+         * by the tile under the user's finger.
+         *
+         * For equal-size tiles this produces a natural swap.
+         */
+        val swapPosition =
+            if (index == 0) {
+                previousMovingPosition
+            } else {
+                null
+            }
+
+        val preferredPosition =
+            listOfNotNull(
+                swapPosition,
+                oldPosition,
+            ).firstOrNull { candidate ->
+                canPlaceMetroTile(
+                    tileId = displacedId,
+                    position = candidate,
+                    positions = working,
+                    sizes = sizes,
+                    gridUnits = gridUnits,
+                )
+            }
+
+        val resolvedPosition =
+            preferredPosition
+                ?: findNearestFreeMetroTilePosition(
+                    tileId = displacedId,
+                    preferred = oldPosition,
+                    positions = working,
+                    sizes = sizes,
+                    gridUnits = gridUnits,
+                )
+
+        working[displacedId] =
+            resolvedPosition
+    }
+
+    return working
 }
 
 
@@ -1408,16 +2064,10 @@ private fun MetroTileDashboard(
         mutableStateOf<Offset?>(null)
     }
 
-    var dragStartOrder by remember {
-        mutableStateOf<List<String>?>(null)
-    }
-
-    var lastReorderTarget by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    var lastReorderAfter by remember {
-        mutableStateOf<Boolean?>(null)
+    var dragStartPositions by remember {
+        mutableStateOf<
+            Map<String, MetroTilePosition>?
+        >(null)
     }
 
     var uploadSize by remember(context) {
@@ -1450,9 +2100,136 @@ private fun MetroTileDashboard(
         )
     }
 
+    val gridUnits =
+        if (showMoreTiles) {
+            8
+        } else {
+            6
+        }
+
+    val currentTileSizes =
+        mapOf(
+            METRO_TILE_UPLOAD to uploadSize,
+            METRO_TILE_DIRECTORY to directorySize,
+            METRO_TILE_STORAGE to storageSize,
+        )
+
+    var tilePositions by remember(
+        context,
+        gridUnits,
+    ) {
+        val saved =
+            loadMetroTilePositions(
+                context,
+                gridUnits,
+            )
+
+        val completeSaved =
+            saved?.takeIf { positions ->
+                val complete =
+                    defaultMetroTileOrder().all {
+                        it in positions
+                    }
+
+                complete &&
+                    defaultMetroTileOrder().all { tileId ->
+                        canPlaceMetroTile(
+                            tileId = tileId,
+                            position =
+                                positions.getValue(
+                                    tileId,
+                                ),
+                            positions = positions,
+                            sizes = currentTileSizes,
+                            gridUnits = gridUnits,
+                        )
+                    }
+            }
+
+        mutableStateOf(
+            completeSaved
+                ?: buildPackedMetroTilePositions(
+                    order = tileOrder,
+                    sizes = currentTileSizes,
+                    gridUnits = gridUnits,
+                ),
+        )
+    }
+
+    fun applyMetroTileSizeChange(
+        tileId: String,
+        newSize: MetroTileSize,
+    ) {
+        val updatedSizes =
+            currentTileSizes +
+                (tileId to newSize)
+
+        val currentPosition =
+            tilePositions[tileId]
+                ?: MetroTilePosition(
+                    column = 0,
+                    row = 0,
+                )
+
+        val adjustedPosition =
+            findNearestFreeMetroTilePosition(
+                tileId = tileId,
+                preferred = currentPosition,
+                positions = tilePositions,
+                sizes = updatedSizes,
+                gridUnits = gridUnits,
+            )
+
+        when (tileId) {
+            METRO_TILE_UPLOAD ->
+                uploadSize = newSize
+
+            METRO_TILE_DIRECTORY ->
+                directorySize = newSize
+
+            METRO_TILE_STORAGE ->
+                storageSize = newSize
+        }
+
+        val updatedPositions =
+            tilePositions +
+                (tileId to adjustedPosition)
+
+        tilePositions =
+            updatedPositions
+
+        saveMetroTileSize(
+            context,
+            tileId,
+            newSize,
+        )
+
+        saveMetroTilePositions(
+            context,
+            gridUnits,
+            updatedPositions,
+        )
+    }
+
+    val dashboardInteractionSource =
+        remember {
+            MutableInteractionSource()
+        }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(
+                enabled =
+                    editMode &&
+                        draggingTile == null,
+                interactionSource =
+                    dashboardInteractionSource,
+                indication = null,
+                onClick = {
+                    onEditModeChange(false)
+                },
+            )
             .padding(
                 horizontal = 20.dp,
                 vertical = 8.dp,
@@ -1460,18 +2237,27 @@ private fun MetroTileDashboard(
     ) {
         val gap = 8.dp
 
-        val gridUnits =
-            if (showMoreTiles) {
-                8
-            } else {
-                6
-            }
-
         val cellSize =
             (
                 maxWidth -
                     gap * (gridUnits - 1)
             ) / gridUnits
+
+        val density =
+            LocalDensity.current
+
+        val cellPx =
+            with(density) {
+                cellSize.toPx()
+            }
+
+        val gapPx =
+            with(density) {
+                gap.toPx()
+            }
+
+        val gridPitchPx =
+            cellPx + gapPx
 
         val availableTiles =
             buildSet {
@@ -1499,12 +2285,33 @@ private fun MetroTileDashboard(
          * ReorderableMetroTile hides the real content while it
          * is being dragged.
          */
-        FlowRow(
+        MetroPositionedLayout(
+            tileSizes =
+                visibleOrder.map { tileId ->
+                    when (tileId) {
+                        METRO_TILE_UPLOAD ->
+                            uploadSize
+
+                        METRO_TILE_DIRECTORY ->
+                            directorySize
+
+                        METRO_TILE_STORAGE ->
+                            storageSize
+
+                        else ->
+                            MetroTileSize.Small
+                    }
+                },
+            tilePositions =
+                visibleOrder.map { tileId ->
+                    tilePositions.getValue(
+                        tileId,
+                    )
+                },
+            gridUnits = gridUnits,
+            cellSize = cellSize,
+            gap = gap,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                Arrangement.spacedBy(gap),
-            verticalArrangement =
-                Arrangement.spacedBy(gap),
         ) {
             visibleOrder.forEach { tileId ->
                 key(tileId) {
@@ -1550,14 +2357,14 @@ private fun MetroTileDashboard(
                             if (bounds != null) {
                                 selectedTile = tileId
                                 onEditModeChange(true)
+
                                 draggingTile = tileId
+
                                 dragPosition =
                                     bounds.center
-                                dragStartOrder =
-                                    tileOrder
 
-                                lastReorderTarget = null
-                                lastReorderAfter = null
+                                dragStartPositions =
+                                    tilePositions
                             }
                         },
                         onDrag = { amount ->
@@ -1568,148 +2375,111 @@ private fun MetroTileDashboard(
                                 val next =
                                     current + amount
 
-                                dragPosition = next
+                                dragPosition =
+                                    next
 
-                                val targetEntry =
-                                    tileBounds
-                                        .entries
-                                        .firstOrNull { entry ->
-                                            if (
-                                                entry.key ==
-                                                    tileId
-                                            ) {
-                                                false
-                                            } else {
-                                                val bounds =
-                                                    entry.value
+                                val tileSize =
+                                    currentTileSizes[tileId]
+                                        ?: MetroTileSize.Small
 
-                                                val insetX =
-                                                    bounds.width *
-                                                        0.12f
+                                val (
+                                    widthUnits,
+                                    heightUnits,
+                                ) =
+                                    metroTileSpan(
+                                        tileSize,
+                                    )
 
-                                                val insetY =
-                                                    bounds.height *
-                                                        0.12f
+                                val tileWidthPx =
+                                    cellPx * widthUnits +
+                                        gapPx *
+                                            (widthUnits - 1)
 
-                                                val active =
-                                                    Rect(
-                                                        left =
-                                                            bounds.left +
-                                                                insetX,
-                                                        top =
-                                                            bounds.top +
-                                                                insetY,
-                                                        right =
-                                                            bounds.right -
-                                                                insetX,
-                                                        bottom =
-                                                            bounds.bottom -
-                                                                insetY,
-                                                    )
+                                val tileHeightPx =
+                                    cellPx * heightUnits +
+                                        gapPx *
+                                            (heightUnits - 1)
 
-                                                active.contains(next)
-                                            }
-                                        }
-
-                                if (targetEntry != null) {
-                                    val target =
-                                        targetEntry.key
-
-                                    val bounds =
-                                        targetEntry.value
-
-                                    val center =
-                                        bounds.center
-
-                                    val horizontal =
+                                val rawColumn =
+                                    kotlin.math.round(
                                         (
                                             next.x -
-                                                center.x
+                                                tileWidthPx /
+                                                    2f
                                         ) /
-                                            bounds.width
+                                            gridPitchPx,
+                                    ).toInt()
 
-                                    val vertical =
+                                val rawRow =
+                                    kotlin.math.round(
                                         (
                                             next.y -
-                                                center.y
+                                                tileHeightPx /
+                                                    2f
                                         ) /
-                                            bounds.height
+                                            gridPitchPx,
+                                    ).toInt()
 
-                                    val placeAfter =
-                                        if (
-                                            kotlin.math.abs(
-                                                vertical,
-                                            ) >
-                                            kotlin.math.abs(
-                                                horizontal,
-                                            )
-                                        ) {
-                                            vertical > 0f
-                                        } else {
-                                            horizontal > 0f
-                                        }
+                                val column =
+                                    rawColumn.coerceIn(
+                                        0,
+                                        gridUnits -
+                                            widthUnits,
+                                    )
 
-                                    val anchorChanged =
-                                        target !=
-                                            lastReorderTarget ||
-                                            placeAfter !=
-                                                lastReorderAfter
+                                val row =
+                                    maxOf(
+                                        0,
+                                        rawRow,
+                                    )
 
-                                    if (anchorChanged) {
-                                        val updated =
-                                            moveMetroTile(
-                                                order =
-                                                    tileOrder,
-                                                source =
-                                                    tileId,
-                                                target =
-                                                    target,
-                                                placeAfter =
-                                                    placeAfter,
-                                            )
+                                val candidate =
+                                    MetroTilePosition(
+                                        column = column,
+                                        row = row,
+                                    )
 
-                                        if (
-                                            updated !=
-                                                tileOrder
-                                        ) {
-                                            tileOrder =
-                                                updated
-                                        }
+                                val resolvedPositions =
+                                    resolveMetroTileMove(
+                                        movingId = tileId,
+                                        target = candidate,
+                                        positions =
+                                            tilePositions,
+                                        sizes =
+                                            currentTileSizes,
+                                        gridUnits =
+                                            gridUnits,
+                                    )
 
-                                        lastReorderTarget =
-                                            target
-
-                                        lastReorderAfter =
-                                            placeAfter
-                                    }
-                                } else {
-                                    lastReorderTarget = null
-                                    lastReorderAfter = null
+                                if (
+                                    resolvedPositions != null &&
+                                    resolvedPositions !=
+                                        tilePositions
+                                ) {
+                                    tilePositions =
+                                        resolvedPositions
                                 }
                             }
                         },
                         onDragEnd = {
-                            saveMetroTileOrder(
+                            saveMetroTilePositions(
                                 context,
-                                tileOrder,
+                                gridUnits,
+                                tilePositions,
                             )
 
                             draggingTile = null
                             dragPosition = null
-                            dragStartOrder = null
-                            lastReorderTarget = null
-                            lastReorderAfter = null
+                            dragStartPositions = null
                         },
                         onDragCancel = {
-                            dragStartOrder?.let {
-                                tileOrder = it
+                            dragStartPositions?.let {
+                                tilePositions = it
                             }
 
                             draggingTile = null
                             dragPosition = null
-                            dragStartOrder = null
-                            lastReorderTarget = null
-                            lastReorderAfter = null
+                            dragStartPositions = null
                         },
                         modifier = tileModifier,
                     ) {
@@ -1731,11 +2501,8 @@ private fun MetroTileDashboard(
                                             selectedTile == tileId &&
                                             draggingTile == null,
                                     onSizeChange = { newSize ->
-                                        uploadSize = newSize
-
-                                        saveMetroTileSize(
-                                            context,
-                                            METRO_TILE_UPLOAD,
+                                        applyMetroTileSizeChange(
+                                            tileId,
                                             newSize,
                                         )
                                     },
@@ -1762,11 +2529,8 @@ private fun MetroTileDashboard(
                                             selectedTile == tileId &&
                                             draggingTile == null,
                                     onSizeChange = { newSize ->
-                                        directorySize = newSize
-
-                                        saveMetroTileSize(
-                                            context,
-                                            METRO_TILE_DIRECTORY,
+                                        applyMetroTileSizeChange(
+                                            tileId,
                                             newSize,
                                         )
                                     },
@@ -1789,12 +2553,8 @@ private fun MetroTileDashboard(
                                                 selectedTile == tileId &&
                                                 draggingTile == null,
                                         onSizeChange = { newSize ->
-                                            storageSize =
-                                                newSize
-
-                                            saveMetroTileSize(
-                                                context,
-                                                METRO_TILE_STORAGE,
+                                            applyMetroTileSizeChange(
+                                                tileId,
                                                 newSize,
                                             )
                                         },
@@ -1938,6 +2698,26 @@ private fun ReorderableMetroTile(
 ) {
     val scope = rememberCoroutineScope()
 
+    val currentOnDragStart by
+        rememberUpdatedState(
+            onDragStart,
+        )
+
+    val currentOnDrag by
+        rememberUpdatedState(
+            onDrag,
+        )
+
+    val currentOnDragEnd by
+        rememberUpdatedState(
+            onDragEnd,
+        )
+
+    val currentOnDragCancel by
+        rememberUpdatedState(
+            onDragCancel,
+        )
+
     /*
      * Translation used only for automatic reflow animation.
      *
@@ -2034,17 +2814,17 @@ private fun ReorderableMetroTile(
                 if (editMode) {
                     detectDragGestures(
                         onDragStart = {
-                            onDragStart()
+                            currentOnDragStart()
                         },
                         onDragEnd = {
-                            onDragEnd()
+                            currentOnDragEnd()
                         },
                         onDragCancel = {
-                            onDragCancel()
+                            currentOnDragCancel()
                         },
                         onDrag = { change, amount ->
                             change.consume()
-                            onDrag(amount)
+                            currentOnDrag(amount)
                         },
                     )
                 }
@@ -2074,6 +2854,146 @@ private fun ReorderableMetroTile(
                 },
         ) {
             content()
+        }
+    }
+}
+
+
+@Composable
+private fun MetroPositionedLayout(
+    tileSizes: List<MetroTileSize>,
+    tilePositions: List<MetroTilePosition>,
+    gridUnits: Int,
+    cellSize: Dp,
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(
+        modifier = modifier,
+        content = content,
+    ) { measurables, constraints ->
+
+        val cellPx =
+            cellSize.roundToPx()
+
+        val gapPx =
+            gap.roundToPx()
+
+        val placeables =
+            measurables.mapIndexed {
+                    index,
+                    measurable,
+                ->
+
+                val tileSize =
+                    tileSizes.getOrElse(index) {
+                        MetroTileSize.Small
+                    }
+
+                val (
+                    widthUnits,
+                    heightUnits,
+                ) =
+                    metroTileSpan(
+                        tileSize,
+                    )
+
+                val widthPx =
+                    cellPx * widthUnits +
+                        gapPx *
+                            (widthUnits - 1)
+
+                val heightPx =
+                    cellPx * heightUnits +
+                        gapPx *
+                            (heightUnits - 1)
+
+                measurable.measure(
+                    androidx.compose.ui.unit
+                        .Constraints.fixed(
+                            widthPx,
+                            heightPx,
+                        ),
+                )
+            }
+
+        var rowsUsed = 0
+
+        tileSizes.forEachIndexed {
+                index,
+                tileSize,
+            ->
+
+            val position =
+                tilePositions.getOrElse(index) {
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    )
+                }
+
+            val (_, heightUnits) =
+                metroTileSpan(
+                    tileSize,
+                )
+
+            rowsUsed =
+                maxOf(
+                    rowsUsed,
+                    position.row +
+                        heightUnits,
+                )
+        }
+
+        val requestedHeight =
+            if (rowsUsed > 0) {
+                cellPx * rowsUsed +
+                    gapPx *
+                        (rowsUsed - 1)
+            } else {
+                0
+            }
+
+        val layoutHeight =
+            requestedHeight
+                .coerceAtLeast(
+                    constraints.minHeight,
+                )
+                .coerceAtMost(
+                    constraints.maxHeight,
+                )
+
+        layout(
+            width = constraints.maxWidth,
+            height = layoutHeight,
+        ) {
+            placeables.forEachIndexed {
+                    index,
+                    placeable,
+                ->
+
+                val position =
+                    tilePositions.getOrElse(index) {
+                        MetroTilePosition(
+                            column = 0,
+                            row = 0,
+                        )
+                    }
+
+                val x =
+                    position.column *
+                        (cellPx + gapPx)
+
+                val y =
+                    position.row *
+                        (cellPx + gapPx)
+
+                placeable.placeRelative(
+                    x = x,
+                    y = y,
+                )
+            }
         }
     }
 }
