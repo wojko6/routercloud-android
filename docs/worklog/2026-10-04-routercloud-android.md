@@ -1,0 +1,641 @@
+# RouterCloud Android — Worklog 2026-10-04
+
+## Status
+
+Pierwszy natywny klient Android dla RouterCloud został uruchomiony na fizycznym urządzeniu i połączony z działającym backendem RouterCloud.
+
+Stan bieżący:
+
+- Build Android: PASS
+- Instalacja na fizycznym urządzeniu: PASS
+- HTTPS: PASS
+- RouterCloud Local CA v2: PASS
+- Logowanie: PASS
+- Sesja cookie: PASS
+- Listowanie katalogów: PASS
+- Nawigacja po katalogach: PASS
+- Pobieranie plików: PASS
+- Otwieranie plików przez Android: PASS
+- Wewnętrzny podgląd tekstu: PASS
+- Upload z aplikacji: PASS
+- Ochrona przed przypadkowym nadpisaniem: PASS
+- Android Share Target: PASS
+- Share → wybór katalogu → upload: PASS
+- Tworzenie katalogów: PASS
+- API zmiany nazwy: PASS
+- UI zmiany nazwy: TODO
+
+---
+
+## 1. Projekt Android
+
+Nazwa aplikacji: RouterCloud
+
+Package / namespace:
+
+`com.wojko6.routercloud`
+
+Technologie:
+
+- Kotlin
+- Jetpack Compose
+- Gradle Kotlin DSL
+- OkHttp
+
+Lokalizacja projektu:
+
+`~/Projekty/routercloud-android`
+
+Konfiguracja SDK:
+
+- compileSdk: 37
+- targetSdk: 37
+- minSdk: 24
+
+Toolchain:
+
+- Android Gradle Plugin: 9.4.1
+- Kotlin: 2.2.10
+- Compose BOM: 2026.02.01
+- OkHttp: 5.5.0
+- Android Studio: Rabbit 1 / 2026.2.1
+- Android SDK: `$HOME/Android/Sdk`
+
+---
+
+## 2. Git
+
+Repozytorium lokalne działa na gałęzi:
+
+`main`
+
+Pierwszy commit projektu:
+
+`6791001 feat(android): bootstrap RouterCloud Compose app`
+
+W kolejnych checkpointach dodano:
+
+- konfigurację bezpieczeństwa sieciowego
+- RouterCloud Local CA v2
+- logowanie
+- sesję
+- listowanie katalogów
+- nawigację katalogów
+- pobieranie plików
+- FileProvider
+- wewnętrzny podgląd tekstu
+- upload
+- Android Share Target
+- tworzenie katalogów
+- warstwę sieciową zmiany nazwy
+
+Zdalne repozytorium GitHub dla klienta Android nie zostało jeszcze skonfigurowane.
+
+---
+
+## 3. Backend RouterCloud
+
+Klient Android korzysta z istniejącego backendu RouterCloud/Dufs.
+
+Na obecnym etapie nie było potrzeby tworzenia osobnego API `/api/v1`.
+
+### Logowanie
+
+Endpoint:
+
+`POST /__routercloud/login`
+
+Content-Type:
+
+`application/x-www-form-urlencoded`
+
+Pola:
+
+- `username`
+- `password`
+
+Poprawne logowanie:
+
+`HTTP 204 No Content`
+
+Backend ustawia cookie:
+
+`__Host-routercloud_session`
+
+Właściwości cookie:
+
+- HttpOnly
+- Secure
+- SameSite=Strict
+- Path=/
+- Max-Age=43200
+
+Cookie jest obecnie przechowywane tylko w pamięci procesu aplikacji.
+
+Hasło nie jest trwale zapisywane.
+
+Po poprawnym zalogowaniu hasło jest usuwane ze stanu UI.
+
+---
+
+## 4. Listowanie katalogów
+
+Do pobierania zawartości katalogów używany jest istniejący interfejs JSON Dufs:
+
+`GET /?json`
+
+Dla podkatalogów:
+
+`GET /katalog/?json`
+
+Backend udostępnia m.in.:
+
+- `paths`
+- `storage`
+- `allow_upload`
+- `allow_move`
+- `allow_delete`
+- `routercloud_allow_delete`
+- `allow_search`
+- `allow_archive`
+
+Weryfikacja kontraktu backendu:
+
+    LOGIN_HTTP=204
+    LIST_HTTP=200
+    DIR_EXISTS=true
+    PATHS=22
+    ALLOW_UPLOAD=true
+    ALLOW_MOVE=true
+    ALLOW_DELETE=true
+    STORAGE_PRESENT=true
+
+---
+
+## 5. PKI / TLS
+
+Podczas przygotowywania klienta Android wykryto problem starego lokalnego CA RouterCloud.
+
+Stary CA:
+
+`RouterCloud Local CA`
+
+posiadał:
+
+`Basic Constraints: CA:TRUE`
+
+ale brakowało poprawnego rozszerzenia Key Usage.
+
+Ścisła walidacja OpenSSL zgłaszała:
+
+`CA cert does not include key usage extension`
+
+### RouterCloud Local CA v2
+
+Utworzono nowe CA:
+
+`RouterCloud Local CA v2`
+
+Poprawne rozszerzenia:
+
+- Basic Constraints: critical, CA:TRUE
+- Key Usage: critical
+- Certificate Sign
+- CRL Sign
+
+Wystawiono nowy certyfikat serwera:
+
+`cloud.home.arpa`
+
+SAN:
+
+- DNS: `cloud.home.arpa`
+- IP: `ROUTERCLOUD_LAN_IP`
+
+Certyfikat posiada poprawne przeznaczenie TLS Server Authentication.
+
+Końcowa weryfikacja:
+
+    depth=1 CN=RouterCloud Local CA v2
+    depth=0 CN=cloud.home.arpa
+    Verification: OK
+    Verify return code: 0 (ok)
+
+Endpoint:
+
+`https://cloud.home.arpa/__routercloud/login`
+
+zwraca:
+
+`HTTP 200`
+
+Stare PKI oraz backup poprzedniego aktywnego TLS zostały zachowane jako możliwość rollbacku.
+
+---
+
+## 6. Android Network Security
+
+Publiczny certyfikat RouterCloud Local CA v2 został dodany do aplikacji jako własny trust anchor.
+
+Pliki:
+
+`app/src/main/res/raw/routercloud_ca_v2.crt`
+
+`app/src/main/res/xml/network_security_config.xml`
+
+Założenia bezpieczeństwa:
+
+- brak trust-all
+- brak wyłączania TLS
+- brak omijania hostname verification
+- brak cleartext dla RouterCloud
+- walidacja `cloud.home.arpa`
+- poprawny łańcuch certyfikatów
+- prywatny klucz CA nigdy nie trafia do aplikacji
+
+---
+
+## 7. Logowanie
+
+Ekran logowania obsługuje:
+
+- login RouterCloud
+- skonfigurowany alias e-mail
+- hasło
+
+Flow:
+
+    POST /__routercloud/login
+             |
+             v
+       HTTP 204 + cookie
+             |
+             v
+         GET /?json
+             |
+             v
+       katalog główny
+
+Test na fizycznym urządzeniu:
+
+`PASS`
+
+---
+
+## 8. Nawigacja po katalogach
+
+Aplikacja obsługuje:
+
+- katalog główny
+- otwieranie podkatalogów
+- dynamiczne pobieranie `/<path>/?json`
+- wyświetlanie bieżącej ścieżki
+- przycisk `← Wstecz`
+- systemowy Android Back
+
+Test katalogu `nowy`:
+
+`PASS`
+
+---
+
+## 9. Pobieranie plików
+
+Pliki są pobierane po HTTPS z wykorzystaniem aktualnej sesji RouterCloud.
+
+Cache:
+
+`cache/routercloud-downloads/`
+
+Plik nie jest automatycznie zapisywany do publicznego katalogu Downloads.
+
+---
+
+## 10. FileProvider
+
+Do bezpiecznego przekazywania pobranych plików innym aplikacjom używany jest Android FileProvider.
+
+Konfiguracja:
+
+`app/src/main/res/xml/file_paths.xml`
+
+Udostępniany jest wyłącznie katalog:
+
+`routercloud-downloads/`
+
+z prywatnego cache aplikacji.
+
+Do aplikacji zewnętrznej przekazywany jest URI z:
+
+`FLAG_GRANT_READ_URI_PERMISSION`
+
+Test:
+
+`PASS`
+
+---
+
+## 11. Wewnętrzny podgląd tekstu
+
+Obsługiwane są m.in.:
+
+- txt
+- md
+- log
+- json
+- xml
+- yaml
+- yml
+- csv
+- ini
+- conf
+- cfg
+- properties
+- sh
+- kt
+- java
+- py
+- js
+- css
+- html
+
+Ekran podglądu umożliwia:
+
+- przewijanie
+- zaznaczanie tekstu
+- cofnięcie
+- użycie `Otwórz w…`
+
+Limit podglądu:
+
+`1 MiB`
+
+Chroni to aplikację przed próbą załadowania bardzo dużych plików tekstowych bezpośrednio do UI.
+
+Test:
+
+`PASS`
+
+---
+
+## 12. Upload z aplikacji
+
+W aplikacji działa:
+
+`↑ Wyślij plik`
+
+Plik wybierany jest przez Android Storage Access Framework:
+
+`ActivityResultContracts.OpenDocument`
+
+Dzięki temu aplikacja nie wymaga szerokich uprawnień do pamięci telefonu.
+
+Transfer wykonywany jest strumieniowo metodą:
+
+`HTTP PUT`
+
+Po uploadzie bieżący katalog jest automatycznie odświeżany.
+
+Test:
+
+`PASS`
+
+---
+
+## 13. Ochrona przed przypadkowym nadpisaniem
+
+Przed wysłaniem aplikacja sprawdza, czy w bieżącym katalogu istnieje już element o tej samej nazwie.
+
+Domyślna polityka:
+
+`NO IMPLICIT OVERWRITE`
+
+Jeżeli nazwa już istnieje, operacja jest zatrzymywana i użytkownik otrzymuje komunikat.
+
+Test:
+
+`PASS`
+
+---
+
+## 14. Android Share Target
+
+RouterCloud jest zarejestrowany jako odbiorca:
+
+`android.intent.action.SEND`
+
+MIME:
+
+`*/*`
+
+Plik można przekazać m.in. z:
+
+- Galerii
+- menedżera plików
+- innych aplikacji Android
+
+Flow:
+
+    Galeria / Pliki / inna aplikacja
+                 |
+                 v
+             Udostępnij
+                 |
+                 v
+            RouterCloud
+                 |
+                 v
+       wybór katalogu docelowego
+                 |
+                 v
+           Wyślij tutaj
+                 |
+                 v
+             HTTPS PUT
+
+Test:
+
+`PASS`
+
+---
+
+## 15. Tworzenie katalogów
+
+Aplikacja obsługuje WebDAV:
+
+`MKCOL`
+
+Poprawna odpowiedź backendu:
+
+`201 Created`
+
+UI:
+
+`＋ Katalog`
+
+Walidacja blokuje m.in.:
+
+- pustą nazwę
+- `.`
+- `..`
+- `/`
+- `\`
+
+Po utworzeniu katalogu lista jest automatycznie odświeżana.
+
+Istniejący element o tej samej nazwie nie jest zastępowany.
+
+Test:
+
+`PASS`
+
+---
+
+## 16. Zmiana nazwy
+
+Warstwa sieciowa została zaimplementowana.
+
+Używana metoda:
+
+`MOVE`
+
+Nagłówek:
+
+`Destination`
+
+Backend RouterCloud realizuje bezpieczną politykę zmiany nazwy:
+
+- źródło i cel muszą znajdować się w tym samym katalogu
+- operacja nie służy do przenoszenia elementów pomiędzy katalogami
+- istniejący cel nie jest nadpisywany
+- konflikt istniejącej nazwy jest zwracany jako błąd
+
+Stan:
+
+- Network API: PASS
+- Build: PASS
+- UI: TODO
+- E2E na urządzeniu: TODO
+
+---
+
+## 17. Aktualny model bezpieczeństwa
+
+Obecny klient Android:
+
+- wymusza HTTPS
+- korzysta z RouterCloud Local CA v2
+- nie używa trust-all
+- nie omija walidacji certyfikatu
+- nie omija hostname verification
+- nie przechowuje hasła w kodzie
+- nie zapisuje hasła do pliku
+- przechowuje sesję tylko w pamięci procesu
+- używa FileProvider
+- korzysta ze Storage Access Framework
+- nie wymaga szerokiego dostępu do pamięci telefonu
+- nie nadpisuje automatycznie istniejących plików
+
+---
+
+## 18. Macierz funkcjonalności
+
+    [PASS] Build
+    [PASS] Physical Android device
+    [PASS] HTTPS / PKI v2
+    [PASS] Login
+    [PASS] Session cookie
+    [PASS] Root listing
+    [PASS] Directory navigation
+    [PASS] Android Back
+    [PASS] Download
+    [PASS] FileProvider
+    [PASS] Open in external application
+    [PASS] Internal text preview
+    [PASS] Upload
+    [PASS] Duplicate upload protection
+    [PASS] Android Share Target
+    [PASS] Share → choose directory → upload
+    [PASS] Create directory
+    [PASS] Rename network API
+    [TODO] Rename UI
+    [TODO] Rename E2E
+    [TODO] Delete UI
+    [TODO] Delete E2E
+
+---
+
+## 19. Następne kroki
+
+Planowana kolejność:
+
+1. UI zmiany nazwy pliku lub katalogu
+2. test E2E metody MOVE
+3. usuwanie pliku lub katalogu z potwierdzeniem
+4. respektowanie flag uprawnień backendu w UI
+5. informacje o zajętości przestrzeni
+6. lepsze ikony plików
+7. dalszy Metro UI
+8. wyszukiwarka
+9. favorites
+10. recent files
+11. obsługa scenariuszy LAN / Tailscale
+12. bezpieczne trwałe przechowywanie sesji
+13. Android Keystore
+14. background upload / WorkManager
+15. progress dużych transferów
+16. retry / resume
+17. podgląd zdjęć
+18. galeria zdjęć i wideo
+19. opcjonalny backup aparatu
+20. biometric unlock
+
+---
+
+## 20. Backend WWW a Android
+
+Na potrzeby obecnego MVP nie było konieczne tworzenie `/api/v1`.
+
+Klient korzysta z już działających mechanizmów RouterCloud/Dufs:
+
+- session login
+- JSON directory listing
+- GET
+- PUT
+- MKCOL
+- MOVE
+- DELETE w kolejnym etapie
+
+Nowe API powinno zostać dodane dopiero wtedy, gdy klient będzie wymagał funkcji lub stabilnego kontraktu, którego obecny backend nie zapewnia.
+
+---
+
+## 21. Decyzje architektoniczne
+
+1. TLS nie jest omijany nawet w sieci prywatnej.
+2. Prywatny CA musi spełniać współczesne wymagania X.509.
+3. Android otrzymuje wyłącznie publiczny certyfikat CA.
+4. Prywatne klucze, hasła i tokeny nie trafiają do repozytorium.
+5. Operacje destrukcyjne mają wymagać jawnego działania użytkownika.
+6. Upload domyślnie nie nadpisuje istniejących elementów.
+7. Duże transfery będą później obsługiwane z progress, retry i resume.
+8. Nie tworzymy nowego backend API tylko po to, aby powielić istniejący poprawny kontrakt.
+9. Każda większa funkcja otrzymuje osobny build, test na urządzeniu i checkpoint Git.
+10. Dokument ten jest kanonicznym worklogiem prac z 2026-10-04.
+
+---
+
+## 22. Dane wrażliwe
+
+Dokument celowo nie zawiera:
+
+- haseł
+- prywatnych kluczy
+- hasła do CA
+- tokenów sesyjnych
+- danych recovery
+- konfiguracji SMTP
+- prywatnego aliasu e-mail
+- innych sekretów
+
+Dokument będzie aktualizowany wraz z dalszym rozwojem RouterCloud Android.
