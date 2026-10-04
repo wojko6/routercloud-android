@@ -562,6 +562,10 @@ Obecny klient Android:
     [PASS] Rename E2E
     [PASS] Delete UI
     [PASS] Delete E2E
+    [PASS] Secure persistent session
+    [PASS] Android Keystore
+    [PASS] Fingerprint unlock
+    [PASS] Fingerprint unlock E2E
 
 ---
 
@@ -738,3 +742,109 @@ Stan:
 - Delete network API: PASS
 - Delete UI: PASS
 - Delete E2E: PASS
+
+---
+
+## 25. Aktualizacja — bezpieczna sesja i odblokowanie odciskiem palca
+
+Zaimplementowano i przetestowano trwałą sesję RouterCloud chronioną
+mechanizmami Android Keystore i silnym uwierzytelnianiem biometrycznym.
+
+### Model bezpieczeństwa
+
+Aplikacja nie zapisuje hasła użytkownika.
+
+Po poprawnym logowaniu zapisywany jest wyłącznie materiał aktywnej sesji
+RouterCloud.
+
+Sesja jest:
+
+- eksportowana z pamięci klienta HTTP
+- serializowana lokalnie
+- szyfrowana AES/GCM
+- chroniona kluczem przechowywanym w `AndroidKeyStore`
+- zapisywana w `noBackupFilesDir`
+- odszyfrowywana dopiero po silnym uwierzytelnieniu biometrycznym
+
+Klucz Keystore wymaga:
+
+`AUTH_BIOMETRIC_STRONG`
+
+Nie są dopuszczone:
+
+- `BIOMETRIC_WEAK`
+- `DEVICE_CREDENTIAL`
+
+W praktyce na urządzeniu testowym oznacza to odblokowanie odciskiem palca.
+
+### Urządzenie testowe
+
+Urządzenie zgłasza:
+
+- fingerprint: `BIOMETRIC_STRONG`
+- face: `BIOMETRIC_CONVENIENCE`
+
+Dlatego Face Unlock nie spełnia polityki RouterCloud.
+
+### Flow
+
+Pierwsze użycie:
+
+1. użytkownik loguje się loginem i hasłem
+2. RouterCloud uzyskuje sesję
+3. użytkownik potwierdza zapis sesji odciskiem palca
+4. sesja zostaje zaszyfrowana i zapisana
+
+Kolejne uruchomienie:
+
+1. aplikacja wykrywa zaszyfrowaną sesję
+2. wyświetlany jest `BiometricPrompt`
+3. użytkownik potwierdza odciskiem palca
+4. Keystore zezwala na odszyfrowanie
+5. cookie są przywracane do klienta HTTP
+6. aplikacja weryfikuje sesję przez `listDirectory()`
+7. po sukcesie użytkownik trafia bezpośrednio do RouterCloud
+
+Jeśli backend odrzuci zapisaną sesję:
+
+- sesja lokalna jest kasowana
+- użytkownik wraca do standardowego logowania
+
+### Logout
+
+Jawne `Wyloguj`:
+
+- wykonuje logout backendu
+- czyści sesję klienta
+- usuwa zaszyfrowaną sesję lokalną
+- po ponownym uruchomieniu aplikacji nie pojawia się automatyczne
+  odblokowanie odciskiem
+
+### E2E
+
+Test na fizycznym urządzeniu:
+
+`PASS`
+
+Potwierdzono:
+
+- logowanie hasłem
+- zapis sesji po autoryzacji odciskiem
+- force-stop aplikacji
+- ponowne uruchomienie
+- automatyczny prompt odcisku
+- wejście do RouterCloud bez ponownego wpisywania hasła
+- anulowanie promptu
+- możliwość ponownej próby
+- logout usuwa zapisaną sesję
+- Face Unlock nie jest używany
+- brak fallbacku do `DEVICE_CREDENTIAL`
+
+Stan:
+
+- Secure session: PASS
+- Android Keystore: PASS
+- AES/GCM storage: PASS
+- BIOMETRIC_STRONG: PASS
+- Fingerprint unlock: PASS
+- Fingerprint E2E: PASS
