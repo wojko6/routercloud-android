@@ -2071,64 +2071,98 @@ private fun MetroActionTile(
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
         ) {
-            if (tileSize == MetroTileSize.Small) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    MetroActionGlyph(
-                        type = icon,
-                        glyphSize = 18.dp,
-                    )
+            when (tileSize) {
+                MetroTileSize.Small -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        MetroActionGlyph(
+                            type = icon,
+                            glyphSize = 18.dp,
+                        )
+                    }
                 }
-            } else {
-                val compact =
-                    tileSize == MetroTileSize.Medium
 
-                val large =
-                    tileSize == MetroTileSize.Large
+                MetroTileSize.Medium -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MetroActionGlyph(
+                                type = icon,
+                                glyphSize = 26.dp,
+                            )
+                        }
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(
-                            when {
-                                compact -> 8.dp
-                                large -> 14.dp
-                                else -> 10.dp
-                            },
-                        ),
-                ) {
-                    MetroActionGlyph(
-                        type = icon,
-                        glyphSize =
-                            when {
-                                compact -> 22.dp
-                                large -> 38.dp
-                                else -> 24.dp
-                            },
-                    )
+                        Text(
+                            text = label,
+                            style =
+                                MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
+                        )
+                    }
+                }
 
-                    Spacer(
-                        modifier = Modifier.weight(1f),
-                    )
+                MetroTileSize.Wide -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MetroActionGlyph(
+                                type = icon,
+                                glyphSize = 30.dp,
+                            )
+                        }
 
-                    Text(
-                        text = label,
-                        style =
-                            when {
-                                compact ->
-                                    MaterialTheme.typography.bodySmall
+                        Text(
+                            text = label,
+                            style =
+                                MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
+                        )
+                    }
+                }
 
-                                large ->
-                                    MaterialTheme.typography.titleMedium
+                MetroTileSize.Large -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp),
+                    ) {
+                        MetroActionGlyph(
+                            type = icon,
+                            glyphSize = 38.dp,
+                        )
 
-                                else ->
-                                    MaterialTheme.typography.bodyMedium
-                            },
-                        fontWeight = FontWeight.Normal,
-                        maxLines = 2,
-                    )
+                        Spacer(
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        Text(
+                            text = label,
+                            style =
+                                MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 2,
+                        )
+                    }
                 }
             }
         }
@@ -2183,7 +2217,7 @@ private fun StorageTile(
                         sizeMenuExpanded = true
                     },
                 ),
-            tonalElevation = 3.dp,
+            tonalElevation = 0.dp,
             shadowElevation = 0.dp,
             shape = RectangleShape,
         ) {
@@ -2212,35 +2246,33 @@ private fun StorageTile(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(7.dp),
-                        verticalArrangement =
-                            Arrangement.SpaceBetween,
+                            .padding(8.dp),
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = String.format(
+                                    Locale.getDefault(),
+                                    "%.1f%%",
+                                    percentage,
+                                ),
+                                style =
+                                    MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1,
+                            )
+                        }
+
                         Text(
                             text = "Pamięć",
                             style =
-                                MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-
-                        Text(
-                            text = String.format(
-                                Locale.getDefault(),
-                                "%.1f%%",
-                                percentage,
-                            ),
-                            style =
-                                MaterialTheme.typography.titleMedium,
-                        )
-
-                        Text(
-                            text =
-                                formatBytes(storage.used),
-                            style =
-                                MaterialTheme.typography.labelSmall,
-                            color =
-                                MaterialTheme.colorScheme
-                                    .onSurfaceVariant,
+                                MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
                         )
                     }
                 }
@@ -2249,21 +2281,22 @@ private fun StorageTile(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(9.dp),
-                        verticalArrangement =
-                            Arrangement.SpaceBetween,
+                            .padding(10.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement =
                                 Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment =
+                                Alignment.Top,
                         ) {
                             Text(
-                                text = "Pamięć",
+                                text =
+                                    "${formatBytes(storage.used)} zajęte",
                                 style =
-                                    MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
+                                    MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1,
                             )
 
                             Text(
@@ -2273,25 +2306,22 @@ private fun StorageTile(
                                     percentage,
                                 ),
                                 style =
-                                    MaterialTheme.typography.titleMedium,
+                                    MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1,
                             )
                         }
 
-                        Text(
-                            text =
-                                "${formatBytes(storage.used)} zajęte",
-                            style =
-                                MaterialTheme.typography.bodyMedium,
+                        Spacer(
+                            modifier = Modifier.weight(1f),
                         )
 
                         Text(
-                            text =
-                                "${formatBytes(storage.available)} wolne",
+                            text = "Pamięć",
                             style =
                                 MaterialTheme.typography.bodySmall,
-                            color =
-                                MaterialTheme.colorScheme
-                                    .onSurfaceVariant,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
                         )
                     }
                 }
