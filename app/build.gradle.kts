@@ -37,6 +37,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation(libs.squareup.okhttp)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

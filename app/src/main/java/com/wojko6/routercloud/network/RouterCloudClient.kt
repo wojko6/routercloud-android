@@ -16,6 +16,18 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
+data class RouterCloudSessionCookie(
+    val name: String,
+    val value: String,
+    val expiresAt: Long,
+    val domain: String,
+    val path: String,
+    val secure: Boolean,
+    val httpOnly: Boolean,
+    val hostOnly: Boolean,
+    val persistent: Boolean,
+)
+
 data class RouterCloudEntry(
     val name: String,
     val pathType: String,
@@ -73,6 +85,25 @@ private class MemoryCookieJar : CookieJar {
             val now = System.currentTimeMillis()
             store.removeAll { it.expiresAt <= now }
             return store.filter { it.matches(url) }
+        }
+    }
+
+    fun snapshot(): List<Cookie> {
+        synchronized(store) {
+            val now = System.currentTimeMillis()
+            store.removeAll { it.expiresAt <= now }
+            return store.toList()
+        }
+    }
+
+    fun replace(cookies: List<Cookie>) {
+        synchronized(store) {
+            val now = System.currentTimeMillis()
+
+            store.clear()
+            store += cookies.filter {
+                it.expiresAt > now
+            }
         }
     }
 
@@ -396,6 +427,60 @@ class RouterCloudClient(
 
             return output.toByteArray().toString(charset)
         }
+    }
+
+    fun exportSessionCookies(): List<RouterCloudSessionCookie> {
+        return cookieJar.snapshot().map { cookie ->
+            RouterCloudSessionCookie(
+                name = cookie.name,
+                value = cookie.value,
+                expiresAt = cookie.expiresAt,
+                domain = cookie.domain,
+                path = cookie.path,
+                secure = cookie.secure,
+                httpOnly = cookie.httpOnly,
+                hostOnly = cookie.hostOnly,
+                persistent = cookie.persistent,
+            )
+        }
+    }
+
+    fun importSessionCookies(
+        cookies: List<RouterCloudSessionCookie>,
+    ) {
+        val restored = cookies.map { saved ->
+            Cookie.Builder()
+                .name(saved.name)
+                .value(saved.value)
+                .apply {
+                    if (saved.hostOnly) {
+                        hostOnlyDomain(saved.domain)
+                    } else {
+                        domain(saved.domain)
+                    }
+
+                    path(saved.path)
+
+                    if (saved.persistent) {
+                        expiresAt(saved.expiresAt)
+                    }
+
+                    if (saved.secure) {
+                        secure()
+                    }
+
+                    if (saved.httpOnly) {
+                        httpOnly()
+                    }
+                }
+                .build()
+        }
+
+        cookieJar.replace(restored)
+    }
+
+    fun clearSession() {
+        cookieJar.clear()
     }
 
     fun logout() {

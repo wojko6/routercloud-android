@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -40,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,9 +54,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.fragment.app.FragmentActivity
 import com.wojko6.routercloud.network.RouterCloudClient
 import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
+import com.wojko6.routercloud.security.BiometricSessionController
 import com.wojko6.routercloud.ui.theme.RouterCloudTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -76,12 +78,14 @@ private data class UploadSource(
     val mimeType: String?,
 )
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         val sharedUri = sharedUriFromIntent(intent)
+        val biometricController =
+            BiometricSessionController(this)
 
         setContent {
             RouterCloudTheme {
@@ -91,6 +95,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     RouterCloudApp(
                         initialSharedUri = sharedUri,
+                        biometricController = biometricController,
                     )
                 }
             }
@@ -114,6 +119,7 @@ private fun sharedUriFromIntent(intent: Intent): Uri? {
 @Composable
 private fun RouterCloudApp(
     initialSharedUri: Uri?,
+    biometricController: BiometricSessionController,
 ) {
     val context = LocalContext.current
     val client = remember { RouterCloudClient() }
@@ -135,6 +141,20 @@ private fun RouterCloudApp(
         mutableStateOf(initialSharedUri)
     }
     var error by remember { mutableStateOf<String?>(null) }
+
+    var biometricBusy by remember {
+        mutableStateOf(false)
+    }
+
+    var hasBiometricSession by remember {
+        mutableStateOf(
+            biometricController.hasSavedSession()
+        )
+    }
+
+    val strongBiometricAvailable = remember {
+        biometricController.isStrongBiometricAvailable()
+    }
 
     fun joinRemotePath(name: String): String {
         return listOf(
@@ -433,13 +453,89 @@ private fun RouterCloudApp(
         }
     }
 
+    fun unlockWithFingerprint() {
+        if (
+            biometricBusy ||
+            loading ||
+            !hasBiometricSession ||
+            !strongBiometricAvailable
+        ) {
+            return
+        }
+
+        biometricBusy = true
+        error = null
+
+        biometricController.restoreSession(
+            onSuccess = { cookies ->
+                biometricBusy = false
+
+                client.importSessionCookies(cookies)
+
+                scope.launch {
+                    loading = true
+                    error = null
+
+                    try {
+                        val result =
+                            withContext(Dispatchers.IO) {
+                                client.listDirectory()
+                            }
+
+                        currentPath = ""
+                        preview = null
+                        directory = result
+                    } catch (e: Exception) {
+                        client.clearSession()
+                        biometricController
+                            .clearSavedSession()
+
+                        hasBiometricSession = false
+
+                        error =
+                            "Zapisana sesja wygasła lub została odrzucona. " +
+                                "Zaloguj się ponownie."
+                    } finally {
+                        loading = false
+                    }
+                }
+            },
+            onError = { message ->
+                biometricBusy = false
+
+                if (message != null) {
+                    error = message
+
+                    if (
+                        !biometricController
+                            .hasSavedSession()
+                    ) {
+                        hasBiometricSession = false
+                    }
+                }
+            },
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        if (
+            hasBiometricSession &&
+            strongBiometricAvailable
+        ) {
+            unlockWithFingerprint()
+        }
+    }
+
     when {
         directory == null -> {
             LoginScreen(
                 username = username,
                 password = password,
-                loading = loading,
+                loading = loading || biometricBusy,
                 error = error,
+                fingerprintAvailable =
+                    hasBiometricSession &&
+                        strongBiometricAvailable,
                 onUsernameChange = {
                     username = it
                     error = null
@@ -447,6 +543,9 @@ private fun RouterCloudApp(
                 onPasswordChange = {
                     password = it
                     error = null
+                },
+                onFingerprintUnlock = {
+                    unlockWithFingerprint()
                 },
                 onLogin = {
                     if (username.isBlank() || password.isEmpty()) {
@@ -467,6 +566,27 @@ private fun RouterCloudApp(
                             password = ""
                             currentPath = ""
                             directory = result
+
+                            val sessionCookies =
+                                client.exportSessionCookies()
+
+                            if (
+                                strongBiometricAvailable &&
+                                sessionCookies.isNotEmpty()
+                            ) {
+                                biometricController.saveSession(
+                                    cookies = sessionCookies,
+                                    onSuccess = {
+                                        hasBiometricSession =
+                                            true
+                                    },
+                                    onError = { message ->
+                                        if (message != null) {
+                                            error = message
+                                        }
+                                    },
+                                )
+                            }
                         } catch (e: Exception) {
                             error = e.message
                                 ?: "Nie udało się połączyć z RouterCloud."
@@ -566,6 +686,10 @@ private fun RouterCloudApp(
                             runCatching { client.logout() }
                         }
 
+                        biometricController
+                            .clearSavedSession()
+                        hasBiometricSession = false
+
                         password = ""
                         currentPath = ""
                         preview = null
@@ -627,8 +751,10 @@ private fun LoginScreen(
     password: String,
     loading: Boolean,
     error: String?,
+    fingerprintAvailable: Boolean,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
+    onFingerprintUnlock: () -> Unit,
     onLogin: () -> Unit,
 ) {
     Column(
@@ -682,6 +808,16 @@ private fun LoginScreen(
                 text = error,
                 color = MaterialTheme.colorScheme.error,
             )
+        }
+
+        if (fingerprintAvailable) {
+            Button(
+                onClick = onFingerprintUnlock,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+            ) {
+                Text("Odblokuj odciskiem palca")
+            }
         }
 
         Button(
