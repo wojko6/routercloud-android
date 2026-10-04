@@ -3,12 +3,16 @@ package com.wojko6.routercloud
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -43,8 +49,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import com.wojko6.routercloud.network.RouterCloudClient
 import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
@@ -53,11 +57,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 private data class TextPreviewState(
     val fileName: String,
     val remotePath: String,
     val content: String,
+)
+
+private data class UploadSource(
+    val fileName: String,
+    val size: Long?,
+    val mimeType: String?,
 )
 
 class MainActivity : ComponentActivity() {
@@ -92,16 +103,20 @@ private fun RouterCloudApp() {
 
     var loading by remember { mutableStateOf(false) }
     var downloadingFile by remember { mutableStateOf<String?>(null) }
+    var uploadingFile by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    fun remotePath(entry: RouterCloudEntry): String {
+    fun joinRemotePath(name: String): String {
         return listOf(
             currentPath.trim('/'),
-            entry.name.trim('/'),
+            name.trim('/'),
         )
             .filter { it.isNotEmpty() }
             .joinToString("/")
     }
+
+    fun remotePath(entry: RouterCloudEntry): String =
+        joinRemotePath(entry.name)
 
     fun loadDirectory(path: String) {
         scope.launch {
@@ -120,6 +135,62 @@ private fun RouterCloudApp() {
             } finally {
                 loading = false
             }
+        }
+    }
+
+    fun uploadUri(uri: Uri) {
+        scope.launch {
+            error = null
+
+            try {
+                val source = withContext(Dispatchers.IO) {
+                    queryUploadSource(context, uri)
+                }
+
+                val alreadyExists = directory
+                    ?.entries
+                    ?.any {
+                        it.name.substringAfterLast('/') == source.fileName
+                    }
+                    ?: false
+
+                if (alreadyExists) {
+                    error = "Plik „${source.fileName}” już istnieje w tym katalogu."
+                    return@launch
+                }
+
+                uploadingFile = source.fileName
+
+                val refreshed = withContext(Dispatchers.IO) {
+                    client.uploadFile(
+                        path = joinRemotePath(source.fileName),
+                        inputStreamProvider = {
+                            context.contentResolver.openInputStream(uri)
+                                ?: throw IOException(
+                                    "Nie można otworzyć wybranego pliku."
+                                )
+                        },
+                        contentLength = source.size,
+                        mediaType = source.mimeType,
+                    )
+
+                    client.listDirectory(currentPath)
+                }
+
+                directory = refreshed
+            } catch (e: Exception) {
+                error = e.message ?: "Nie udało się wysłać pliku."
+            } finally {
+                uploadingFile = null
+            }
+        }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            uploadUri(uri)
         }
     }
 
@@ -276,7 +347,11 @@ private fun RouterCloudApp() {
                 currentPath = currentPath,
                 loading = loading,
                 downloadingFile = downloadingFile,
+                uploadingFile = uploadingFile,
                 error = error,
+                onUpload = {
+                    filePicker.launch(arrayOf("*/*"))
+                },
                 onEntryClick = { entry ->
                     if (entry.isDirectory) {
                         loadDirectory(remotePath(entry))
@@ -397,11 +472,18 @@ private fun FilesScreen(
     currentPath: String,
     loading: Boolean,
     downloadingFile: String?,
+    uploadingFile: String?,
     error: String?,
+    onUpload: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
     onLogout: () -> Unit,
 ) {
+    val busy =
+        loading ||
+            downloadingFile != null ||
+            uploadingFile != null
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -431,18 +513,36 @@ private fun FilesScreen(
                 )
             }
 
-            TextButton(onClick = onLogout) {
+            TextButton(
+                onClick = onLogout,
+                enabled = !busy,
+            ) {
                 Text("Wyloguj")
             }
         }
 
-        if (currentPath.isNotEmpty()) {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.padding(horizontal = 8.dp),
-                enabled = !loading && downloadingFile == null,
-            ) {
-                Text("← Wstecz")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (currentPath.isNotEmpty()) {
+                TextButton(
+                    onClick = onBack,
+                    enabled = !busy,
+                ) {
+                    Text("← Wstecz")
+                }
+            }
+
+            if (directory.allowUpload) {
+                TextButton(
+                    onClick = onUpload,
+                    enabled = !busy,
+                ) {
+                    Text("↑ Wyślij plik")
+                }
             }
         }
 
@@ -456,6 +556,13 @@ private fun FilesScreen(
         if (downloadingFile != null) {
             Text(
                 text = "Pobieranie: $downloadingFile",
+                modifier = Modifier.padding(20.dp),
+            )
+        }
+
+        if (uploadingFile != null) {
+            Text(
+                text = "Wysyłanie: $uploadingFile",
                 modifier = Modifier.padding(20.dp),
             )
         }
@@ -479,7 +586,7 @@ private fun FilesScreen(
             ) { entry ->
                 FileRow(
                     entry = entry,
-                    enabled = !loading && downloadingFile == null,
+                    enabled = !busy,
                     onClick = {
                         onEntryClick(entry)
                     },
@@ -595,6 +702,53 @@ private fun FileRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+private fun queryUploadSource(
+    context: Context,
+    uri: Uri,
+): UploadSource {
+    var name: String? = null
+    var size: Long? = null
+
+    context.contentResolver.query(
+        uri,
+        arrayOf(
+            OpenableColumns.DISPLAY_NAME,
+            OpenableColumns.SIZE,
+        ),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val nameColumn =
+                cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+
+            val sizeColumn =
+                cursor.getColumnIndex(OpenableColumns.SIZE)
+
+            if (nameColumn >= 0 && !cursor.isNull(nameColumn)) {
+                name = cursor.getString(nameColumn)
+            }
+
+            if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
+                size = cursor.getLong(sizeColumn)
+            }
+        }
+    }
+
+    val safeName = (name ?: "routercloud-upload")
+        .replace('/', '_')
+        .replace('\\', '_')
+        .trim()
+        .ifBlank { "routercloud-upload" }
+
+    return UploadSource(
+        fileName = safeName,
+        size = size,
+        mimeType = context.contentResolver.getType(uri),
+    )
 }
 
 private fun supportsTextPreview(fileName: String): Boolean {

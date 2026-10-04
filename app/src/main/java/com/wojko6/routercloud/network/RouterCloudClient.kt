@@ -5,11 +5,15 @@ import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import org.json.JSONObject
+import okio.BufferedSink
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 data class RouterCloudEntry(
@@ -180,6 +184,56 @@ class RouterCloudClient(
         }
     }
 
+
+
+    fun uploadFile(
+        path: String,
+        inputStreamProvider: () -> InputStream,
+        contentLength: Long?,
+        mediaType: String?,
+    ) {
+        val requestBody = object : RequestBody() {
+            override fun contentType() =
+                mediaType?.toMediaTypeOrNull()
+
+            override fun contentLength(): Long =
+                contentLength ?: -1L
+
+            override fun writeTo(sink: BufferedSink) {
+                inputStreamProvider().use { input ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+
+                    while (true) {
+                        val read = input.read(buffer)
+
+                        if (read == -1) {
+                            break
+                        }
+
+                        sink.write(buffer, 0, read)
+                    }
+                }
+            }
+        }
+
+        val request = Request.Builder()
+            .url(buildUrl(path))
+            .put(requestBody)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.code == 401) {
+                throw RouterCloudAuthException()
+            }
+
+            if (!response.isSuccessful) {
+                throw RouterCloudHttpException(
+                    response.code,
+                    "Wysyłanie pliku: HTTP ${response.code}",
+                )
+            }
+        }
+    }
 
     fun readTextFile(
         path: String,
