@@ -23,7 +23,7 @@ Stan bieżący:
 - Share → wybór katalogu → upload: PASS
 - Tworzenie katalogów: PASS
 - API zmiany nazwy: PASS
-- UI zmiany nazwy: TODO
+- UI zmiany nazwy: PASS
 
 ---
 
@@ -514,8 +514,8 @@ Stan:
 
 - Network API: PASS
 - Build: PASS
-- UI: TODO
-- E2E na urządzeniu: TODO
+- UI: PASS
+- E2E na urządzeniu: PASS
 
 ---
 
@@ -558,8 +558,8 @@ Obecny klient Android:
     [PASS] Share → choose directory → upload
     [PASS] Create directory
     [PASS] Rename network API
-    [TODO] Rename UI
-    [TODO] Rename E2E
+    [PASS] Rename UI
+    [PASS] Rename E2E
     [TODO] Delete UI
     [TODO] Delete E2E
 
@@ -639,3 +639,52 @@ Dokument celowo nie zawiera:
 - innych sekretów
 
 Dokument będzie aktualizowany wraz z dalszym rozwojem RouterCloud Android.
+
+---
+
+## 23. Aktualizacja — bezpieczna zmiana nazwy
+
+Zaimplementowano i przetestowano pełny flow zmiany nazwy plików i katalogów.
+
+UI:
+
+- menu `⋮` przy elementach, gdy backend zezwala na `allow_move`
+- akcja `Zmień nazwę`
+- dialog z walidacją nowej nazwy
+- automatyczne odświeżenie katalogu po sukcesie
+
+Walidacja klienta blokuje:
+
+- pustą nazwę
+- `.`
+- `..`
+- `/`
+- `\`
+- zmianę na identyczną nazwę
+- nazwę już istniejącą w bieżącym katalogu
+
+Backend wykorzystuje:
+
+`MOVE`
+
+z nagłówkiem:
+
+`Destination`
+
+Polityka backendu:
+
+- rename tylko w obrębie tego samego katalogu
+- brak przenoszenia pomiędzy katalogami
+- brak nadpisania istniejącego celu
+- konflikt istniejącej nazwy jest odrzucany
+
+Test na fizycznym urządzeniu:
+
+`PASS`
+
+Potwierdzono:
+
+- zmianę nazwy katalogu
+- poprawne odświeżenie listy
+- możliwość wejścia do przemianowanego katalogu
+- ochronę przed zmianą na istniejącą nazwę
