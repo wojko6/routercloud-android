@@ -1575,6 +1575,88 @@ private fun canPlaceMetroTile(
 }
 
 
+private fun buildBoundedMetroTilePositions(
+    order: List<String>,
+    sizes: Map<String, MetroTileSize>,
+    gridUnits: Int,
+    workspaceRows: Int,
+): Map<String, MetroTilePosition>? {
+    val result =
+        linkedMapOf<String, MetroTilePosition>()
+
+    order.forEach { tileId ->
+        val size =
+            sizes[tileId]
+                ?: return null
+
+        val (
+            width,
+            height,
+        ) =
+            metroTileSpan(size)
+
+        val maxColumn =
+            gridUnits - width
+
+        val maxRow =
+            workspaceRows - height
+
+        if (
+            maxColumn < 0 ||
+            maxRow < 0
+        ) {
+            return null
+        }
+
+        var placed = false
+
+        search@ for (row in 0..maxRow) {
+            for (column in 0..maxColumn) {
+                val candidate =
+                    MetroTilePosition(
+                        column = column,
+                        row = row,
+                    )
+
+                if (
+                    canPlaceMetroTile(
+                        tileId = tileId,
+                        position = candidate,
+                        positions = result,
+                        sizes = sizes,
+                        gridUnits = gridUnits,
+                    )
+                ) {
+                    result[tileId] =
+                        candidate
+
+                    placed = true
+                    break@search
+                }
+            }
+        }
+
+        if (!placed) {
+            return null
+        }
+    }
+
+    if (
+        !validateMetroTileLayout(
+            positions = result,
+            sizes = sizes,
+            tileIds = order,
+            gridUnits = gridUnits,
+            workspaceRows = workspaceRows,
+        )
+    ) {
+        return null
+    }
+
+    return result
+}
+
+
 private fun buildPackedMetroTilePositions(
     order: List<String>,
     sizes: Map<String, MetroTileSize>,
@@ -2114,102 +2196,282 @@ private fun MetroTileDashboard(
             METRO_TILE_STORAGE to storageSize,
         )
 
+    val safeDefaultTileSizes =
+        mapOf(
+            METRO_TILE_UPLOAD to
+                MetroTileSize.Medium,
+            METRO_TILE_DIRECTORY to
+                MetroTileSize.Medium,
+            METRO_TILE_STORAGE to
+                MetroTileSize.Wide,
+        )
+
     var tilePositions by remember(
         context,
         gridUnits,
     ) {
+        val tileIds =
+            defaultMetroTileOrder()
+
         val saved =
             loadMetroTilePositions(
                 context,
                 gridUnits,
             )
 
-        val completeSaved =
+        val validSaved =
             saved?.takeIf { positions ->
-                val complete =
-                    defaultMetroTileOrder().all {
-                        it in positions
-                    }
-
-                complete &&
-                    defaultMetroTileOrder().all { tileId ->
-                        canPlaceMetroTile(
-                            tileId = tileId,
-                            position =
-                                positions.getValue(
-                                    tileId,
-                                ),
-                            positions = positions,
-                            sizes = currentTileSizes,
-                            gridUnits = gridUnits,
-                        )
-                    }
+                validateMetroTileLayout(
+                    positions = positions,
+                    sizes = currentTileSizes,
+                    tileIds = tileIds,
+                    gridUnits = gridUnits,
+                    workspaceRows =
+                        METRO_WORKSPACE_ROWS,
+                )
             }
 
+        val packedCurrent =
+            buildBoundedMetroTilePositions(
+                order = tileOrder,
+                sizes = currentTileSizes,
+                gridUnits = gridUnits,
+                workspaceRows =
+                    METRO_WORKSPACE_ROWS,
+            )
+
+        val safeFallback =
+            buildBoundedMetroTilePositions(
+                order = tileOrder,
+                sizes = safeDefaultTileSizes,
+                gridUnits = gridUnits,
+                workspaceRows =
+                    METRO_WORKSPACE_ROWS,
+            )
+                ?: error(
+                    "Safe Metro layout does not fit workspace",
+                )
+
         mutableStateOf(
-            completeSaved
-                ?: buildPackedMetroTilePositions(
-                    order = tileOrder,
-                    sizes = currentTileSizes,
-                    gridUnits = gridUnits,
-                ),
+            validSaved
+                ?: packedCurrent
+                ?: safeFallback,
         )
+    }
+
+    /*
+     * One-time migration for layouts created before the
+     * bounded 4-row Tile Engine.
+     *
+     * If the persisted sizes cannot form a legal layout in
+     * the current density, restore only the Metro tile layout
+     * to safe sizes. Other application preferences remain
+     * untouched.
+     */
+    LaunchedEffect(
+        context,
+        gridUnits,
+    ) {
+        val tileIds =
+            defaultMetroTileOrder()
+
+        val currentLayoutIsValid =
+            validateMetroTileLayout(
+                positions = tilePositions,
+                sizes = currentTileSizes,
+                tileIds = tileIds,
+                gridUnits = gridUnits,
+                workspaceRows =
+                    METRO_WORKSPACE_ROWS,
+            )
+
+        if (!currentLayoutIsValid) {
+            val safePositions =
+                buildBoundedMetroTilePositions(
+                    order = tileOrder,
+                    sizes = safeDefaultTileSizes,
+                    gridUnits = gridUnits,
+                    workspaceRows =
+                        METRO_WORKSPACE_ROWS,
+                )
+                    ?: return@LaunchedEffect
+
+            uploadSize =
+                safeDefaultTileSizes.getValue(
+                    METRO_TILE_UPLOAD,
+                )
+
+            directorySize =
+                safeDefaultTileSizes.getValue(
+                    METRO_TILE_DIRECTORY,
+                )
+
+            storageSize =
+                safeDefaultTileSizes.getValue(
+                    METRO_TILE_STORAGE,
+                )
+
+            tilePositions =
+                safePositions
+
+            safeDefaultTileSizes.forEach {
+                    (tileId, size),
+                ->
+                saveMetroTileSize(
+                    context,
+                    tileId,
+                    size,
+                )
+            }
+
+            saveMetroTilePositions(
+                context,
+                gridUnits,
+                safePositions,
+            )
+        } else {
+            /*
+             * Also replace an old invalid/missing persisted
+             * position record with the bounded layout selected
+             * during startup.
+             */
+            saveMetroTilePositions(
+                context,
+                gridUnits,
+                tilePositions,
+            )
+        }
     }
 
     fun applyMetroTileSizeChange(
         tileId: String,
         newSize: MetroTileSize,
     ) {
-        val updatedSizes =
-            currentTileSizes +
-                (tileId to newSize)
-
         val currentPosition =
             tilePositions[tileId]
-                ?: MetroTilePosition(
-                    column = 0,
-                    row = 0,
-                )
+                ?: return
 
-        val adjustedPosition =
-            findNearestFreeMetroTilePosition(
-                tileId = tileId,
-                preferred = currentPosition,
-                positions = tilePositions,
-                sizes = updatedSizes,
-                gridUnits = gridUnits,
-            )
+        /*
+         * Only tiles which are currently available in the
+         * dashboard participate in collision resolution.
+         *
+         * Hidden capability-dependent tiles may still have
+         * persisted positions, but they must not block the
+         * currently visible layout.
+         */
+        val activeTileIds =
+            buildList {
+                if (allowUpload) {
+                    add(METRO_TILE_UPLOAD)
+                    add(METRO_TILE_DIRECTORY)
+                }
 
-        when (tileId) {
-            METRO_TILE_UPLOAD ->
-                uploadSize = newSize
+                if (storage != null) {
+                    add(METRO_TILE_STORAGE)
+                }
+            }
 
-            METRO_TILE_DIRECTORY ->
-                directorySize = newSize
-
-            METRO_TILE_STORAGE ->
-                storageSize = newSize
+        if (tileId !in activeTileIds) {
+            return
         }
 
-        val updatedPositions =
-            tilePositions +
-                (tileId to adjustedPosition)
+        /*
+         * The resize button is a size-cycle control.
+         *
+         * The requested size is always tried first. If that
+         * exact size cannot produce a valid bounded layout,
+         * continue through the size cycle until the first
+         * legal alternative is found.
+         *
+         * This prevents the UI from becoming stuck when, for
+         * example, Wide -> Large is impossible but Small is
+         * perfectly legal.
+         *
+         * Every candidate is resolved independently from the
+         * same currently accepted layout.
+         */
+        val currentSize =
+            currentTileSizes[tileId]
+                ?: return
+
+        val candidateSizes =
+            buildList {
+                var candidate =
+                    newSize
+
+                repeat(MetroTileSize.values().size) {
+                    if (
+                        candidate != currentSize &&
+                        candidate !in this
+                    ) {
+                        add(candidate)
+                    }
+
+                    candidate =
+                        nextMetroTileSize(candidate)
+                }
+            }
+
+        val resolved =
+            candidateSizes
+                .firstNotNullOfOrNull { candidateSize ->
+                    resolveMetroTileLayoutChange(
+                        tileId = tileId,
+                        requestedPosition =
+                            currentPosition,
+                        requestedSize =
+                            candidateSize,
+                        positions =
+                            tilePositions,
+                        sizes =
+                            currentTileSizes,
+                        tileIds =
+                            activeTileIds,
+                        gridUnits =
+                            gridUnits,
+                        workspaceRows =
+                            METRO_WORKSPACE_ROWS,
+                    )
+                }
+                ?: return
+
+        /*
+         * ACCEPT.
+         *
+         * State and persistence are changed only after the
+         * complete candidate layout has passed the resolver
+         * and validator.
+         */
+        when (tileId) {
+            METRO_TILE_UPLOAD ->
+                uploadSize =
+                    resolved.sizes.getValue(tileId)
+
+            METRO_TILE_DIRECTORY ->
+                directorySize =
+                    resolved.sizes.getValue(tileId)
+
+            METRO_TILE_STORAGE ->
+                storageSize =
+                    resolved.sizes.getValue(tileId)
+        }
 
         tilePositions =
-            updatedPositions
+            resolved.positions
 
         saveMetroTileSize(
             context,
             tileId,
-            newSize,
+            resolved.sizes.getValue(tileId),
         )
 
         saveMetroTilePositions(
             context,
             gridUnits,
-            updatedPositions,
+            resolved.positions,
         )
     }
+
 
     val dashboardInteractionSource =
         remember {
@@ -2309,6 +2571,8 @@ private fun MetroTileDashboard(
                     )
                 },
             gridUnits = gridUnits,
+            workspaceRows =
+                METRO_WORKSPACE_ROWS,
             cellSize = cellSize,
             gap = gap,
             modifier = Modifier.fillMaxWidth(),
@@ -2375,6 +2639,11 @@ private fun MetroTileDashboard(
                                 val next =
                                     current + amount
 
+                                /*
+                                 * The detached overlay follows
+                                 * the pointer without changing
+                                 * dashboard geometry.
+                                 */
                                 dragPosition =
                                     next
 
@@ -2420,53 +2689,95 @@ private fun MetroTileDashboard(
                                             gridPitchPx,
                                     ).toInt()
 
-                                val column =
-                                    rawColumn.coerceIn(
-                                        0,
-                                        gridUnits -
-                                            widthUnits,
-                                    )
-
-                                val row =
-                                    maxOf(
-                                        0,
-                                        rawRow,
-                                    )
-
+                                /*
+                                 * Do not clamp an illegal
+                                 * target into the workspace.
+                                 *
+                                 * T09-T12 require an out of
+                                 * bounds drag to be REJECT,
+                                 * preserving the last valid
+                                 * logical layout.
+                                 */
                                 val candidate =
                                     MetroTilePosition(
-                                        column = column,
-                                        row = row,
+                                        column = rawColumn,
+                                        row = rawRow,
                                     )
 
-                                val resolvedPositions =
-                                    resolveMetroTileMove(
-                                        movingId = tileId,
-                                        target = candidate,
+                                /*
+                                 * Resolve every live preview
+                                 * from the layout captured at
+                                 * drag start.
+                                 *
+                                 * This prevents cumulative
+                                 * reflow drift when the pointer
+                                 * moves through several cells
+                                 * and then comes back.
+                                 */
+                                val basePositions =
+                                    dragStartPositions
+                                        ?: tilePositions
+
+                                val resolved =
+                                    resolveMetroTileLayoutChange(
+                                        tileId = tileId,
+                                        requestedPosition =
+                                            candidate,
+                                        requestedSize =
+                                            tileSize,
                                         positions =
-                                            tilePositions,
+                                            basePositions,
                                         sizes =
                                             currentTileSizes,
+                                        tileIds =
+                                            visibleOrder,
                                         gridUnits =
                                             gridUnits,
+                                        workspaceRows =
+                                            METRO_WORKSPACE_ROWS,
                                     )
 
-                                if (
-                                    resolvedPositions != null &&
-                                    resolvedPositions !=
-                                        tilePositions
-                                ) {
+                                if (resolved != null) {
                                     tilePositions =
-                                        resolvedPositions
+                                        resolved.positions
                                 }
                             }
                         },
                         onDragEnd = {
-                            saveMetroTilePositions(
-                                context,
-                                gridUnits,
-                                tilePositions,
-                            )
+                            val finalLayoutIsValid =
+                                validateMetroTileLayout(
+                                    positions =
+                                        tilePositions,
+                                    sizes =
+                                        currentTileSizes,
+                                    tileIds =
+                                        visibleOrder,
+                                    gridUnits =
+                                        gridUnits,
+                                    workspaceRows =
+                                        METRO_WORKSPACE_ROWS,
+                                )
+
+                            if (finalLayoutIsValid) {
+                                saveMetroTilePositions(
+                                    context,
+                                    gridUnits,
+                                    tilePositions,
+                                )
+                            } else {
+                                /*
+                                 * Defensive fallback.
+                                 *
+                                 * The new resolver should never
+                                 * produce an invalid candidate,
+                                 * but persistence must never
+                                 * accept one even if another UI
+                                 * regression appears later.
+                                 */
+                                dragStartPositions?.let {
+                                    tilePositions = it
+                                }
+                            }
 
                             draggingTile = null
                             dragPosition = null
@@ -2864,6 +3175,7 @@ private fun MetroPositionedLayout(
     tileSizes: List<MetroTileSize>,
     tilePositions: List<MetroTilePosition>,
     gridUnits: Int,
+    workspaceRows: Int,
     cellSize: Dp,
     gap: Dp,
     modifier: Modifier = Modifier,
@@ -2918,39 +3230,18 @@ private fun MetroPositionedLayout(
                 )
             }
 
-        var rowsUsed = 0
-
-        tileSizes.forEachIndexed {
-                index,
-                tileSize,
-            ->
-
-            val position =
-                tilePositions.getOrElse(index) {
-                    MetroTilePosition(
-                        column = 0,
-                        row = 0,
-                    )
-                }
-
-            val (_, heightUnits) =
-                metroTileSpan(
-                    tileSize,
-                )
-
-            rowsUsed =
-                maxOf(
-                    rowsUsed,
-                    position.row +
-                        heightUnits,
-                )
-        }
-
+        /*
+         * Workspace geometry is fixed.
+         *
+         * Tile positions must never control the height of the
+         * dashboard. This guarantees that dragging a tile can
+         * never push the file list further down the screen.
+         */
         val requestedHeight =
-            if (rowsUsed > 0) {
-                cellPx * rowsUsed +
+            if (workspaceRows > 0) {
+                cellPx * workspaceRows +
                     gapPx *
-                        (rowsUsed - 1)
+                        (workspaceRows - 1)
             } else {
                 0
             }

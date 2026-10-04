@@ -1624,3 +1624,76 @@ Kolejnosc:
 Stary resolver drag pozostaje tymczasowo bez zmian,
 dopoki resize nie zostanie zweryfikowany w UI.
 
+
+
+## Metro Tile Engine - GREEN UI integration checkpoint
+
+Nowy bounded Tile Engine zostal podpiety do rzeczywistego UI.
+
+### Resize
+
+- resize korzysta z resolveMetroTileLayoutChange()
+- workspaceRows = 4
+- ACCEPT zmienia stan i persistence
+- REJECT pozostawia poprzedni legalny layout
+- gdy nastepny rozmiar w cyklu jest niemozliwy,
+  UI szuka kolejnego legalnego rozmiaru
+- startup migration naprawia stare nielegalne layouty
+
+### Drag
+
+- drag korzysta z resolveMetroTileLayoutChange()
+- live preview jest liczony z dragStartPositions
+- brak kumulacyjnego reflow drift
+- target poza workspace jest REJECT
+- overlay moze podazac za palcem poza workspace,
+  ale logiczny layout pozostaje legalny
+- onDragEnd zapisuje tylko layout przechodzacy validator
+- onDragCancel przywraca dokladny dragStartPositions
+
+### Workspace
+
+MetroPositionedLayout ma stala wysokosc:
+
+- METRO_WORKSPACE_ROWS = 4
+- pozycje kafelkow nie steruja juz wysokoscia dashboardu
+- przeciaganie kafelka w dol nie moze przesuwac listy plikow
+- lista plikow pozostaje stabilna podczas drag
+
+### Walidacja manualna na urzadzeniu
+
+PASS:
+
+- resize kafelkow
+- resize z reflow
+- drag kafelkow
+- drag na zajete miejsce
+- drag poza dolna granice
+- drag poza pozostale granice
+- lista plikow nie jest spychana w dol
+- dashboard nie rosnie podczas drag
+- layout zachowuje sie prawidlowo po operacjach
+
+### Stan architektury
+
+Aktywna sciezka UI:
+
+- resize -> resolveMetroTileLayoutChange()
+- drag -> resolveMetroTileLayoutChange()
+- startup -> validateMetroTileLayout()
+- startup fallback -> bounded packer
+- persistence drag -> tylko valid layout
+
+Pozostaly jeszcze stare funkcje legacy w MainActivity.kt,
+ale nie powinny byc juz potrzebne przez aktywna sciezke UI.
+
+Nastepny krok:
+
+1. potwierdzic brak aktywnych wywolan legacy
+2. usunac resolveMetroTileMove()
+3. usunac findNearestFreeMetroTilePosition()
+4. usunac isMetroTileInsideGrid()
+5. usunac nieograniczony buildPackedMetroTilePositions()
+6. ponownie uruchomic testy i build
+7. wykonac krotki smoke test na telefonie
+
