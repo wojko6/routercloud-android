@@ -1167,3 +1167,174 @@ Decyzja projektowa:
 - Large pozostaje rozszerzeniem eksperymentalnym RouterCloud.
 - kolejny etap to Windows-style visual polish typografii,
   ikon, paddingów i układu treści kafli.
+
+## Metro Tile Engine - checkpoint TDD
+
+### Cel
+
+Przebudowa mechaniki kafelkow RouterCloud na jawny,
+ograniczony workspace zgodny z:
+
+- docs/METRO-TILE-ENGINE-SPEC.md
+- grid 6 / 8 jednostek
+- workspaceRows = 4
+- brak kolizji
+- brak zwiekszania wysokosci dashboardu przez drag
+- atomowe ACCEPT / REJECT
+- wspolny resolver docelowo dla drag i resize
+
+### Aktualny model
+
+Dodano validator:
+
+- validateMetroTileLayout()
+
+Sprawdza:
+
+- komplet pozycji i rozmiarow
+- granice poziome
+- granice pionowe
+- workspaceRows
+- nakladanie kafelkow
+
+Validator posiada testy JVM.
+
+Plik:
+
+- app/src/test/java/com/wojko6/routercloud/MetroTileLayoutValidatorTest.kt
+
+Aktualny wynik:
+
+- validator tests = PASS
+- all unit tests przed T08 = PASS
+- assembleDebug przed T08 = PASS
+
+### Nowy resolver
+
+Plik:
+
+- app/src/main/java/com/wojko6/routercloud/MetroTileResolver.kt
+
+Funkcja:
+
+- resolveMetroTileLayoutChange()
+
+Aktualnie zaimplementowane zachowanie:
+
+T01 PASS
+
+Medium przeciagany na puste miejsce:
+
+- moving tile trafia dokladnie w target
+- pozostale kafelki nie zmieniaja pozycji
+- caly kandydat przechodzi validateMetroTileLayout()
+
+T02 PASS
+
+Medium przeciagany dokladnie na drugi Medium:
+
+- moving tile przejmuje target
+- displaced tile przechodzi w poprzednie miejsce moving tile
+- naturalny swap
+- validateMetroTileLayout() = PASS
+
+T12 PASS
+
+Medium przeciagany ponizej workspaceRows = 4:
+
+- resolver zwraca REJECT
+- poprzedni layout pozostaje bez zmian
+- dashboard nie moze legalnie rosnac w dol
+
+### Aktualny RED
+
+T08:
+
+- t08_mediumPartiallyOverlapsMedium_displacesIntoVacatedSlot
+
+Scenariusz:
+
+- tile A = Medium, column 0, row 0
+- tile B = Medium, column 4, row 0
+- B jest przeciagany do column 1, row 0
+- B tylko czesciowo nachodzi na A
+
+Oczekiwane:
+
+- B zajmuje column 1, row 0
+- A zostaje displaced
+- A trafia do poprzedniego miejsca B: column 4, row 0
+- finalny layout przechodzi validator
+
+Aktualny wynik:
+
+- T08_RC=1
+- T08_RED_PHASE=PASS
+
+To jest oczekiwany RED.
+
+Przyczyna:
+
+Aktualna implementacja resolvera rozpoznaje displaced tile tylko wtedy,
+gdy jego pozycja jest dokladnie rowna requestedPosition.
+
+Nie wykrywa jeszcze rzeczywistego przeciecia prostokatow kafelkow.
+
+### Nastepny krok
+
+NIE podpinac jeszcze nowego resolvera do UI.
+
+Nastepna implementacja ma:
+
+1. wykrywac geometryczne overlap kafelkow
+2. zachowac T01 PASS
+3. zachowac T02 PASS
+4. zachowac T12 PASS
+5. doprowadzic T08 do GREEN
+6. uruchomic wszystkie unit testy
+7. uruchomic assembleDebug
+
+Po T08 GREEN dopiero tworzymy checkpoint kodu.
+
+### Stara logika nadal obecna
+
+MainActivity.kt nadal zawiera stary mechanizm:
+
+- canPlaceMetroTile()
+- findNearestFreeMetroTilePosition()
+- metroTilesOverlap()
+- isMetroTileInsideGrid()
+- resolveMetroTileMove()
+
+Problemy starej logiki:
+
+- findNearestFreeMetroTilePosition() moze szukac kolejnych wierszy bez ograniczenia workspace
+- isMetroTileInsideGrid() sprawdza szerokosc, ale nie workspaceRows
+- drag i resize nadal korzystaja z roznych sciezek
+- applyMetroTileSizeChange() nadal uzywa findNearestFreeMetroTilePosition()
+
+Nie usuwac tych funkcji przed zakonczeniem i przetestowaniem nowego resolvera.
+
+### Stan plikow na checkpoint
+
+Oczekiwane zmiany robocze:
+
+- M app/src/main/java/com/wojko6/routercloud/MainActivity.kt
+- ?? app/src/main/java/com/wojko6/routercloud/MetroTileResolver.kt
+- ?? app/src/test/java/com/wojko6/routercloud/MetroTileLayoutResolverTest.kt
+- ?? app/src/test/java/com/wojko6/routercloud/MetroTileLayoutValidatorTest.kt
+
+### Zasada dalszej pracy
+
+Nie dodajemy nowych funkcji dashboardu.
+
+Najpierw:
+
+- Tile Engine
+- T01-T24
+- validateLayout PASS
+- stabilny drag
+- stabilny resize
+- persistence
+- dopiero potem nowe kafelki lub funkcje.
+
