@@ -569,6 +569,8 @@ Obecny klient Android:
     [PASS] Backend permissions respected in UI
     [PASS] Storage information
     [PASS] Metro storage tile
+    [PASS] Metro file type icons
+    [PASS] Windows Mobile inspired icon language
 
 ---
 
@@ -946,3 +948,72 @@ Stan:
 - Storage UI: PASS
 - Metro sharp-corner styling: PASS
 - Storage E2E: PASS
+
+---
+
+## 28. Aktualizacja — ikony plików w stylu Metro / Windows Mobile
+
+Domyślne ikony Material Design zostały zastąpione własnym zestawem
+wektorowych ikon RouterCloud inspirowanych językiem wizualnym
+Windows 10 Mobile / Metro.
+
+Cel:
+
+- odejście od wyglądu typowego dla współczesnego Androida
+- spójność z RouterCloud Web
+- płaski, geometryczny styl
+- ostre krawędzie
+- brak cieni i dekoracyjnych efektów
+- wspólna rodzina wizualna dla wszystkich typów plików
+
+Zaimplementowane typy:
+
+- katalog
+- PDF
+- obraz
+- wideo
+- audio
+- archiwum
+- kod / skrypt
+- dokument tekstowy
+- plik ogólny
+
+Foldery używają płaskiego żółtego glyphu.
+
+Pozostałe typy plików używają prostych białych ikon konturowych.
+
+Usunięto zależność:
+
+`material-icons-extended`
+
+Ikony są renderowane przez własny komponent:
+
+`MetroFileIcon`
+
+i własne operacje `Canvas`.
+
+Test wizualny na fizycznym urządzeniu:
+
+`PASS`
+
+Potwierdzono:
+
+- spójny wygląd katalogów
+- poprawną ikonę PDF
+- poprawne ikony plików tekstowych
+- poprawną ikonę obrazu
+- zgodność stylistyczną z kierunkiem Metro RouterCloud
+
+Dalsze dopracowanie ikon pozostaje jako późniejszy polish:
+
+- możliwe uproszczenie glyphu PDF
+- dalsze strojenie grubości linii
+- ewentualne korekty rozmiaru i optycznego wyrównania
+- dopracowanie pozostałych rzadziej używanych typów
+
+Stan:
+
+- Custom Metro icons: PASS
+- File type detection: PASS
+- Material icon replacement: PASS
+- Physical-device visual test: PASS
