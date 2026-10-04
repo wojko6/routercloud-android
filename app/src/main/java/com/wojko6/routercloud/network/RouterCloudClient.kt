@@ -8,6 +8,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -66,9 +67,7 @@ private class MemoryCookieJar : CookieJar {
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
         synchronized(store) {
             val now = System.currentTimeMillis()
-
             store.removeAll { it.expiresAt <= now }
-
             return store.filter { it.matches(url) }
         }
     }
@@ -84,7 +83,6 @@ class RouterCloudClient(
     baseUrl: String = "https://cloud.home.arpa",
 ) {
     private val baseUrl = baseUrl.trimEnd('/')
-
     private val cookieJar = MemoryCookieJar()
 
     private val client = OkHttpClient.Builder()
@@ -119,7 +117,6 @@ class RouterCloudClient(
         client.newCall(request).execute().use { response ->
             when (response.code) {
                 204 -> Unit
-
                 401 -> throw RouterCloudAuthException()
 
                 else -> throw RouterCloudHttpException(
@@ -131,21 +128,8 @@ class RouterCloudClient(
     }
 
     fun listDirectory(path: String = ""): RouterCloudDirectory {
-        val urlBuilder = baseUrl.toHttpUrl()
-            .newBuilder()
-            .encodedPath("/")
-
-        path.trim('/')
-            .split('/')
-            .filter { it.isNotEmpty() }
-            .forEach { urlBuilder.addPathSegment(it) }
-
-        val url = urlBuilder
-            .addQueryParameter("json", null)
-            .build()
-
         val request = Request.Builder()
-            .url(url)
+            .url(buildUrl(path, json = true))
             .get()
             .build()
 
@@ -161,9 +145,38 @@ class RouterCloudClient(
                 )
             }
 
-            val payload = response.body.string()
+            return parseDirectory(response.body.string())
+        }
+    }
 
-            return parseDirectory(payload)
+    fun downloadFile(
+        path: String,
+        destination: File,
+    ) {
+        val request = Request.Builder()
+            .url(buildUrl(path))
+            .get()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.code == 401) {
+                throw RouterCloudAuthException()
+            }
+
+            if (!response.isSuccessful) {
+                throw RouterCloudHttpException(
+                    response.code,
+                    "Pobieranie pliku: HTTP ${response.code}",
+                )
+            }
+
+            destination.parentFile?.mkdirs()
+
+            response.body.byteStream().use { input ->
+                destination.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
         }
     }
 
@@ -178,6 +191,26 @@ class RouterCloudClient(
         } finally {
             cookieJar.clear()
         }
+    }
+
+    private fun buildUrl(
+        path: String,
+        json: Boolean = false,
+    ): HttpUrl {
+        val builder = baseUrl.toHttpUrl()
+            .newBuilder()
+            .encodedPath("/")
+
+        path.trim('/')
+            .split('/')
+            .filter { it.isNotEmpty() }
+            .forEach { builder.addPathSegment(it) }
+
+        if (json) {
+            builder.addQueryParameter("json", null)
+        }
+
+        return builder.build()
     }
 
     private fun parseDirectory(payload: String): RouterCloudDirectory {
