@@ -1752,3 +1752,128 @@ Pozostale zadania Tile Engine:
 - testy persistence i density switch T20-T23
 - finalny invariant/stress test T24
 
+
+
+## End of day - 2026-10-04
+
+Dzisiejsza sesja zakonczona na stabilnym GREEN checkpoint.
+
+### Ostatni commit kodu
+
+063c6a7 feat(android): finalize bounded Metro tile interactions
+
+### Stan Metro Tile Engine
+
+Aktywna sciezka UI korzysta obecnie z jednego silnika:
+
+- drag -> resolveMetroTileLayoutChange()
+- resize -> resolveMetroTileLayoutChange()
+- startup validation -> validateMetroTileLayout()
+- startup fallback -> bounded layout builder
+
+Legacy Tile Engine zostal odlaczony.
+
+Potwierdzone:
+
+- LEGACY_REFERENCES=0
+- testDebugUnitTest PASS
+- assembleDebug PASS
+- git diff --check PASS
+- working tree po commicie byl czysty
+
+### Drag
+
+Zweryfikowane manualnie na telefonie:
+
+- przesuwanie na wolne miejsce
+- przesuwanie na zajete miejsce
+- atomic reflow
+- przesuwanie poza lewa granice
+- przesuwanie poza prawa granice
+- przesuwanie ponad workspace
+- przesuwanie ponizej workspace
+- overlay podaza za palcem
+- logiczna pozycja pozostaje ograniczona do workspace
+- drag cancel przywraca stan poczatkowy
+- drag end zapisuje tylko poprawny layout
+
+Najwazniejsza poprawka:
+
+przeciaganie kafelka w dol nie moze juz zwiekszac
+wysokosci dashboardu ani spychac listy plikow.
+
+### Workspace
+
+Aktualna konfiguracja:
+
+- grid width: 6 lub 8 jednostek
+- workspaceRows = 4
+- wysokosc MetroPositionedLayout jest stala
+- wysokosc nie zalezy od pozycji kafelkow
+
+workspaceRows = 4 jest parametrem aktualnej implementacji,
+a nie docelowym limitem liczby kafelkow.
+
+W przyszlosci liczba kafelkow i liczba wierszy moze zostac
+zwiekszona bez zmiany podstawowego modelu Tile Engine.
+
+### Resize
+
+Zweryfikowane:
+
+- Small / Medium / Wide / Large
+- collision reflow
+- multi-collision reflow
+- atomic REJECT
+- brak blokady cyklu rozmiarow
+- jezeli kolejny rozmiar jest niemozliwy, UI moze znalezc
+  kolejny legalny rozmiar
+- resize przy prawej lub dolnej krawedzi moze zmienic
+  anchor kafelka na najblizsza legalna pozycje
+- kafelek nie jest blokowany tylko dlatego, ze aktualny
+  top-left anchor nie miesci wiekszego rozmiaru
+
+Large pozostaje niestandardowym rozszerzeniem RouterCloud,
+a nie standardowym rozmiarem finalnego Windows 10 Mobile.
+
+### Startup / migracja
+
+Dodano bounded startup path:
+
+- zapisany layout jest sprawdzany przez validator
+- stare layouty wychodzace poza 4-row workspace sa odrzucane
+- w razie potrzeby tworzony jest legalny fallback
+- migracja nie wymaga kasowania wszystkich danych aplikacji
+
+### Persistence
+
+Pozycje sa obecnie rozdzielone wedlug szerokosci siatki:
+
+- tile_positions_v2_6
+- tile_positions_v2_8
+
+Pozostala luka architektoniczna:
+
+rozmiary upload / directory / storage nadal sa globalne
+i nie sa jeszcze przechowywane osobno dla grid 6 i grid 8.
+
+### Pozostale zadania
+
+Nastepna sesja zaczyna sie od persistence i testow:
+
+1. rozdzielic rozmiary kafelkow dla grid 6 i grid 8
+2. T20 - restart persistence
+3. T21 - 6 -> 8 odtwarza layout 8
+4. T22 - 8 -> 6 odtwarza layout 6
+5. T23 - invalid persisted layout -> safe fallback
+6. uzupelnic brakujace przypadki macierzy T01-T24
+7. T24 - repeated drag / resize invariant stress test
+8. finalna walidacja Tile Engine v1
+
+### Zasada na nastepna sesje
+
+Nie dodajemy nowych funkcji dashboardu przed zakonczeniem
+T20-T24 i finalnego invariant testu.
+
+Obecny stan drag + resize + bounded workspace traktujemy
+jako zamkniety GREEN checkpoint.

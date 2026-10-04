@@ -560,3 +560,66 @@ oraz po kazdej zaakceptowanej operacji:
     validateLayout = PASS
 
 Do tego momentu nie dodajemy nowych funkcji dashboardu.
+
+
+## Implementation status - 2026-10-04
+
+Metro Tile Engine osiagnal GREEN checkpoint dla aktywnej
+warstwy interakcji UI.
+
+### Implemented
+
+- bounded workspace
+- workspaceRows = 4
+- explicit tile coordinates
+- no-overlap validation
+- horizontal and vertical boundary validation
+- atomic ACCEPT / REJECT
+- deterministic displacement
+- multi-tile displacement
+- drag and resize using the same resolver
+- live drag preview
+- drag cancel restore
+- persistence only after valid drag drop
+- resize edge-anchor relocation
+- startup validation
+- bounded startup fallback
+- fixed dashboard height independent of tile positions
+- legacy drag resolver removed from active implementation
+
+### UI invariant
+
+A tile overlay may visually follow the pointer outside the
+workspace during drag.
+
+The logical layout must never leave the configured workspace.
+
+Dragging must never increase dashboard height or move the file
+list downward.
+
+### Current persistence model
+
+Positions are density-specific:
+
+- grid 6 has its own position state
+- grid 8 has its own position state
+
+Tile sizes are not yet density-specific.
+
+This must be resolved before persistence tests T20-T23 are
+considered complete.
+
+### Remaining Definition of Done work
+
+Still required before Metro Tile Engine v1 is complete:
+
+- T20 restart persistence
+- T21 grid 6 -> grid 8
+- T22 grid 8 -> grid 6
+- T23 invalid persisted state fallback
+- explicit review of any matrix cases not yet represented by
+  automated tests
+- T24 repeated drag/resize invariant stress test
+
+No new dashboard features should be added until these items
+are complete.
