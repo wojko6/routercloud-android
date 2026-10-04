@@ -76,21 +76,40 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val sharedUri = sharedUriFromIntent(intent)
+
         setContent {
             RouterCloudTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    RouterCloudApp()
+                    RouterCloudApp(
+                        initialSharedUri = sharedUri,
+                    )
                 }
             }
         }
     }
 }
 
+@Suppress("DEPRECATION")
+private fun sharedUriFromIntent(intent: Intent): Uri? {
+    if (intent.action != Intent.ACTION_SEND) {
+        return null
+    }
+
+    return intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        ?: intent.clipData
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.uri
+}
+
 @Composable
-private fun RouterCloudApp() {
+private fun RouterCloudApp(
+    initialSharedUri: Uri?,
+) {
     val context = LocalContext.current
     val client = remember { RouterCloudClient() }
     val scope = rememberCoroutineScope()
@@ -104,6 +123,9 @@ private fun RouterCloudApp() {
     var loading by remember { mutableStateOf(false) }
     var downloadingFile by remember { mutableStateOf<String?>(null) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
+    var pendingSharedUri by remember {
+        mutableStateOf(initialSharedUri)
+    }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun joinRemotePath(name: String): String {
@@ -138,7 +160,10 @@ private fun RouterCloudApp() {
         }
     }
 
-    fun uploadUri(uri: Uri) {
+    fun uploadUri(
+        uri: Uri,
+        clearPendingShare: Boolean = false,
+    ) {
         scope.launch {
             error = null
 
@@ -178,6 +203,10 @@ private fun RouterCloudApp() {
                 }
 
                 directory = refreshed
+
+                if (clearPendingShare) {
+                    pendingSharedUri = null
+                }
             } catch (e: Exception) {
                 error = e.message ?: "Nie udało się wysłać pliku."
             } finally {
@@ -348,9 +377,18 @@ private fun RouterCloudApp() {
                 loading = loading,
                 downloadingFile = downloadingFile,
                 uploadingFile = uploadingFile,
+                pendingSharedFile = pendingSharedUri != null,
                 error = error,
                 onUpload = {
                     filePicker.launch(arrayOf("*/*"))
+                },
+                onUploadSharedHere = {
+                    pendingSharedUri?.let { uri ->
+                        uploadUri(
+                            uri = uri,
+                            clearPendingShare = true,
+                        )
+                    }
                 },
                 onEntryClick = { entry ->
                     if (entry.isDirectory) {
@@ -473,8 +511,10 @@ private fun FilesScreen(
     loading: Boolean,
     downloadingFile: String?,
     uploadingFile: String?,
+    pendingSharedFile: Boolean,
     error: String?,
     onUpload: () -> Unit,
+    onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
     onLogout: () -> Unit,
@@ -542,6 +582,29 @@ private fun FilesScreen(
                     enabled = !busy,
                 ) {
                     Text("↑ Wyślij plik")
+                }
+            }
+        }
+
+        if (pendingSharedFile) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "Plik udostępniony z innej aplikacji",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Button(
+                    onClick = onUploadSharedHere,
+                    enabled = !busy && directory.allowUpload,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Wyślij tutaj")
                 }
             }
         }
