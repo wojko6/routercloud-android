@@ -560,8 +560,8 @@ Obecny klient Android:
     [PASS] Rename network API
     [PASS] Rename UI
     [PASS] Rename E2E
-    [TODO] Delete UI
-    [TODO] Delete E2E
+    [PASS] Delete UI
+    [PASS] Delete E2E
 
 ---
 
@@ -688,3 +688,53 @@ Potwierdzono:
 - poprawne odświeżenie listy
 - możliwość wejścia do przemianowanego katalogu
 - ochronę przed zmianą na istniejącą nazwę
+
+---
+
+## 24. Aktualizacja — bezpieczne usuwanie
+
+Zaimplementowano i przetestowano pełny flow usuwania plików i katalogów.
+
+Network API:
+
+- metoda HTTP `DELETE`
+- obsługa poprawnego usunięcia
+- obsługa błędów autoryzacji i uprawnień
+- obsługa brakującego elementu
+- brak lokalnego usunięcia elementu przed potwierdzeniem odpowiedzi backendu
+
+UI:
+
+- opcja `Usuń` w menu `⋮`
+- opcja jest dostępna tylko wtedy, gdy backend zezwala na usuwanie
+- respektowana flaga `allowDelete`
+- obsługiwane:
+  - `routercloud_allow_delete`
+  - `allow_delete`
+
+Bezpieczeństwo:
+
+- operacja destrukcyjna wymaga jawnego potwierdzenia
+- dialog wyświetla nazwę elementu
+- użytkownik jest informowany, że operacji nie można cofnąć
+- `Anuluj` nie wykonuje żadnej operacji sieciowej
+- lista katalogu jest odświeżana dopiero po poprawnym zakończeniu `DELETE`
+
+Test E2E na fizycznym urządzeniu:
+
+`PASS`
+
+Potwierdzono:
+
+- usuwanie pliku
+- usuwanie katalogu
+- działanie przycisku `Anuluj`
+- działanie końcowego potwierdzenia `Usuń`
+- automatyczne odświeżenie listy po sukcesie
+- zachowanie istniejącej funkcji zmiany nazwy
+
+Stan:
+
+- Delete network API: PASS
+- Delete UI: PASS
+- Delete E2E: PASS
