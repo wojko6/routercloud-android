@@ -1,6 +1,10 @@
 package com.wojko6.routercloud
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -31,10 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.wojko6.routercloud.network.RouterCloudClient
 import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
@@ -42,6 +48,7 @@ import com.wojko6.routercloud.ui.theme.RouterCloudTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,26 +70,25 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun RouterCloudApp() {
+    val context = LocalContext.current
     val client = remember { RouterCloudClient() }
     val scope = rememberCoroutineScope()
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var directory by remember { mutableStateOf<RouterCloudDirectory?>(null) }
+    var currentPath by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var downloadingFile by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
 
-    var directory by remember {
-        mutableStateOf<RouterCloudDirectory?>(null)
-    }
-
-    var currentPath by remember {
-        mutableStateOf("")
-    }
-
-    var loading by remember {
-        mutableStateOf(false)
-    }
-
-    var error by remember {
-        mutableStateOf<String?>(null)
+    fun remotePath(entry: RouterCloudEntry): String {
+        return listOf(
+            currentPath.trim('/'),
+            entry.name.trim('/'),
+        )
+            .filter { it.isNotEmpty() }
+            .joinToString("/")
     }
 
     fun loadDirectory(path: String) {
@@ -101,6 +107,48 @@ private fun RouterCloudApp() {
                 error = e.message ?: "Nie udało się pobrać katalogu."
             } finally {
                 loading = false
+            }
+        }
+    }
+
+    fun downloadAndOpen(entry: RouterCloudEntry) {
+        scope.launch {
+            downloadingFile = entry.name
+            error = null
+
+            try {
+                val downloaded = withContext(Dispatchers.IO) {
+                    val cacheDir = File(
+                        context.cacheDir,
+                        "routercloud-downloads",
+                    )
+
+                    cacheDir.mkdirs()
+
+                    val safeName = entry.name
+                        .substringAfterLast('/')
+                        .ifBlank { "routercloud-file" }
+
+                    val destination = File(cacheDir, safeName)
+
+                    client.downloadFile(
+                        path = remotePath(entry),
+                        destination = destination,
+                    )
+
+                    destination
+                }
+
+                openDownloadedFile(
+                    context = context,
+                    file = downloaded,
+                )
+            } catch (e: ActivityNotFoundException) {
+                error = "Brak aplikacji, która potrafi otworzyć ten typ pliku."
+            } catch (e: Exception) {
+                error = e.message ?: "Nie udało się pobrać pliku."
+            } finally {
+                downloadingFile = null
             }
         }
     }
@@ -152,6 +200,7 @@ private fun RouterCloudApp() {
             val parent = currentPath
                 .trim('/')
                 .substringBeforeLast('/', "")
+
             loadDirectory(parent)
         }
 
@@ -159,16 +208,14 @@ private fun RouterCloudApp() {
             directory = directory!!,
             currentPath = currentPath,
             loading = loading,
+            downloadingFile = downloadingFile,
             error = error,
-            onOpenDirectory = { entry ->
-                val nextPath = listOf(
-                    currentPath.trim('/'),
-                    entry.name.trim('/'),
-                )
-                    .filter { it.isNotEmpty() }
-                    .joinToString("/")
-
-                loadDirectory(nextPath)
+            onEntryClick = { entry ->
+                if (entry.isDirectory) {
+                    loadDirectory(remotePath(entry))
+                } else {
+                    downloadAndOpen(entry)
+                }
             },
             onBack = {
                 val parent = currentPath
@@ -276,8 +323,9 @@ private fun FilesScreen(
     directory: RouterCloudDirectory,
     currentPath: String,
     loading: Boolean,
+    downloadingFile: String?,
     error: String?,
-    onOpenDirectory: (RouterCloudEntry) -> Unit,
+    onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -300,11 +348,7 @@ private fun FilesScreen(
                 )
 
                 Text(
-                    text = if (currentPath.isEmpty()) {
-                        "/"
-                    } else {
-                        "/$currentPath"
-                    },
+                    text = if (currentPath.isEmpty()) "/" else "/$currentPath",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
@@ -323,14 +367,22 @@ private fun FilesScreen(
             TextButton(
                 onClick = onBack,
                 modifier = Modifier.padding(horizontal = 8.dp),
-                enabled = !loading,
+                enabled = !loading && downloadingFile == null,
             ) {
                 Text("← Wstecz")
             }
         }
 
         if (loading) {
-            CircularProgressIndicator(
+            Text(
+                text = "Wczytywanie katalogu…",
+                modifier = Modifier.padding(20.dp),
+            )
+        }
+
+        if (downloadingFile != null) {
+            Text(
+                text = "Pobieranie: $downloadingFile",
                 modifier = Modifier.padding(20.dp),
             )
         }
@@ -354,10 +406,9 @@ private fun FilesScreen(
             ) { entry ->
                 FileRow(
                     entry = entry,
+                    enabled = !loading && downloadingFile == null,
                     onClick = {
-                        if (entry.isDirectory) {
-                            onOpenDirectory(entry)
-                        }
+                        onEntryClick(entry)
                     },
                 )
 
@@ -370,13 +421,14 @@ private fun FilesScreen(
 @Composable
 private fun FileRow(
     entry: RouterCloudEntry,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
-                enabled = entry.isDirectory,
+                enabled = enabled,
                 onClick = onClick,
             )
             .padding(horizontal = 20.dp, vertical = 14.dp),
@@ -386,7 +438,7 @@ private fun FileRow(
             text = if (entry.isDirectory) {
                 "📁 ${entry.name}"
             } else {
-                entry.name
+                "📄 ${entry.name}"
             },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
@@ -402,6 +454,36 @@ private fun FileRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+private fun openDownloadedFile(
+    context: Context,
+    file: File,
+) {
+    val uri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+
+    val extension = file.extension.lowercase()
+
+    val mimeType = MimeTypeMap
+        .getSingleton()
+        .getMimeTypeFromExtension(extension)
+        ?: "application/octet-stream"
+
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mimeType)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    context.startActivity(
+        Intent.createChooser(
+            intent,
+            "Otwórz plik RouterCloud",
+        )
+    )
 }
 
 private fun formatBytes(bytes: Long): String {
