@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -61,6 +62,8 @@ import com.wojko6.routercloud.network.RouterCloudDirectory
 import com.wojko6.routercloud.network.RouterCloudEntry
 import com.wojko6.routercloud.network.RouterCloudStorage
 import com.wojko6.routercloud.security.BiometricSessionController
+import com.wojko6.routercloud.ui.MetroActionGlyph
+import com.wojko6.routercloud.ui.MetroActionGlyphType
 import com.wojko6.routercloud.ui.MetroFileIcon
 import com.wojko6.routercloud.ui.theme.RouterCloudTheme
 import kotlinx.coroutines.Dispatchers
@@ -869,23 +872,33 @@ private fun FilesScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(
+                    start = 20.dp,
+                    end = 12.dp,
+                    top = 18.dp,
+                    bottom = 8.dp,
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
         ) {
-            Column {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     text = "RouterCloud",
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                 )
 
                 Text(
                     text = if (currentPath.isEmpty()) "/" else "/$currentPath",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Text(
                     text = "${directory.entries.size} elementów",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -898,40 +911,46 @@ private fun FilesScreen(
             }
         }
 
-        directory.storage?.let { storage ->
-            StorageTile(storage)
+        if (currentPath.isNotEmpty()) {
+            TextButton(
+                onClick = onBack,
+                enabled = !busy,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            ) {
+                Text("← Wstecz")
+            }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (currentPath.isNotEmpty()) {
-                TextButton(
-                    onClick = onBack,
+        if (directory.allowUpload) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 20.dp,
+                        vertical = 8.dp,
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MetroActionTile(
+                    icon = MetroActionGlyphType.Upload,
+                    label = "Wyślij plik",
                     enabled = !busy,
-                ) {
-                    Text("← Wstecz")
-                }
-            }
-
-            if (directory.allowUpload) {
-                TextButton(
                     onClick = onUpload,
-                    enabled = !busy,
-                ) {
-                    Text("↑ Wyślij plik")
-                }
+                    modifier = Modifier.weight(1f),
+                )
 
-                TextButton(
-                    onClick = onCreateDirectory,
+                MetroActionTile(
+                    icon = MetroActionGlyphType.NewFolder,
+                    label = "Katalog",
                     enabled = !busy,
-                ) {
-                    Text("＋ Katalog")
-                }
+                    onClick = onCreateDirectory,
+                    modifier = Modifier.weight(1f),
+                )
             }
+        }
+
+        directory.storage?.let { storage ->
+            StorageTile(storage)
         }
 
         if (pendingSharedFile) {
@@ -1013,6 +1032,43 @@ private fun FilesScreen(
 
                 HorizontalDivider()
             }
+        }
+    }
+}
+
+@Composable
+private fun MetroActionTile(
+    icon: MetroActionGlyphType,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(112.dp),
+        shape = RectangleShape,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            MetroActionGlyph(
+                type = icon,
+            )
+
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }
