@@ -1110,3 +1110,60 @@ Następny etap:
 - tryb edycji kafli
 - drag and drop / zmiana kolejności
 - trwały zapis kolejności
+
+---
+
+## 31. Aktualizacja — interaktywny dashboard Metro
+
+Rozwinięto dashboard RouterCloud w kierunku ekranu Start
+Windows 10 Mobile.
+
+Zaimplementowano:
+
+- rozmiary kafli:
+  - Mały
+  - Średni
+  - Szeroki
+  - eksperymentalny Duży
+- dwa tryby gęstości:
+  - standardowy układ 6 jednostek
+  - Pokaż więcej kafelków — 8 jednostek
+- trwały zapis rozmiarów kafli
+- trwały zapis ustawienia gęstości
+- tryb Edytuj kafelki
+- drag and drop
+- zmiana kolejności kafli na żywo podczas przeciągania
+- trwały zapis kolejności
+- osobna warstwa drag overlay dla przeciąganego kafla
+- stabilny placeholder w FlowRow
+- animacja reflow pozostałych kafli
+- własne glyphy Metro dla akcji
+- eksperymentalny kafel Duży 4x4
+
+Warstwa drag overlay rozwiązuje problem migania przeciąganego
+kafla podczas reorganizacji elementów o różnych rozmiarach.
+
+Pozostałe kafle animują zmianę pozycji podczas live reorder.
+
+Test na fizycznym urządzeniu:
+
+PASS
+
+Potwierdzono:
+
+- Mały -> Szeroki drag: PASS
+- Średni -> Szeroki drag: PASS
+- live reorder: PASS
+- persistent tile order: PASS
+- reflow animation: PASS
+- Duży kafel: PASS wizualny
+- 6-unit layout: PASS
+- 8-unit Show more tiles: PASS
+
+Decyzja projektowa:
+
+- Small / Medium / Wide mają docelowo możliwie wiernie
+  nawiązywać do Windows 10 Mobile.
+- Large pozostaje rozszerzeniem eksperymentalnym RouterCloud.
+- kolejny etap to Windows-style visual polish typografii,
+  ikon, paddingów i układu treści kafli.
