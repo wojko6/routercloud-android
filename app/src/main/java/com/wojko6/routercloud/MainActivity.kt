@@ -12,8 +12,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,19 +53,28 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.Dp
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
@@ -884,6 +897,10 @@ private fun FilesScreen(
         mutableStateOf(false)
     }
 
+    var tileEditMode by remember {
+        mutableStateOf(false)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -926,43 +943,63 @@ private fun FilesScreen(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box {
+                if (tileEditMode) {
                     TextButton(
                         onClick = {
-                            layoutMenuExpanded = true
+                            tileEditMode = false
                         },
                     ) {
-                        Text("Układ")
+                        Text("Gotowe")
                     }
-
-                    DropdownMenu(
-                        expanded = layoutMenuExpanded,
-                        onDismissRequest = {
-                            layoutMenuExpanded = false
-                        },
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text("Pokaż więcej kafelków")
-                            },
-                            trailingIcon = {
-                                Switch(
-                                    checked = showMoreTiles,
-                                    onCheckedChange = null,
-                                )
-                            },
+                } else {
+                    Box {
+                        TextButton(
                             onClick = {
-                                showMoreTiles =
-                                    !showMoreTiles
+                                layoutMenuExpanded = true
+                            },
+                        ) {
+                            Text("Układ")
+                        }
 
-                                saveMetroShowMoreTiles(
-                                    context,
-                                    showMoreTiles,
-                                )
-
+                        DropdownMenu(
+                            expanded = layoutMenuExpanded,
+                            onDismissRequest = {
                                 layoutMenuExpanded = false
                             },
-                        )
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text("Edytuj kafelki")
+                                },
+                                onClick = {
+                                    layoutMenuExpanded = false
+                                    tileEditMode = true
+                                },
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Text("Pokaż więcej kafelków")
+                                },
+                                trailingIcon = {
+                                    Switch(
+                                        checked = showMoreTiles,
+                                        onCheckedChange = null,
+                                    )
+                                },
+                                onClick = {
+                                    showMoreTiles =
+                                        !showMoreTiles
+
+                                    saveMetroShowMoreTiles(
+                                        context,
+                                        showMoreTiles,
+                                    )
+
+                                    layoutMenuExpanded = false
+                                },
+                            )
+                        }
                     }
                 }
 
@@ -990,6 +1027,7 @@ private fun FilesScreen(
             allowUpload = directory.allowUpload,
             busy = busy,
             showMoreTiles = showMoreTiles,
+            editMode = tileEditMode,
             onUpload = onUpload,
             onCreateDirectory = onCreateDirectory,
         )
@@ -1092,6 +1130,9 @@ private const val METRO_TILE_STORAGE =
 private const val METRO_SHOW_MORE_TILES =
     "show_more_tiles"
 
+private const val METRO_TILE_ORDER =
+    "tile_order"
+
 
 private enum class MetroTileSize(
     val displayName: String,
@@ -1099,6 +1140,98 @@ private enum class MetroTileSize(
     Small("Mały"),
     Medium("Średni"),
     Wide("Szeroki"),
+    Large("Duży"),
+}
+
+
+private fun defaultMetroTileOrder(): List<String> =
+    listOf(
+        METRO_TILE_UPLOAD,
+        METRO_TILE_DIRECTORY,
+        METRO_TILE_STORAGE,
+    )
+
+
+private fun loadMetroTileOrder(
+    context: Context,
+): List<String> {
+    val defaults = defaultMetroTileOrder()
+
+    val saved =
+        context
+            .getSharedPreferences(
+                METRO_TILE_PREFS,
+                Context.MODE_PRIVATE,
+            )
+            .getString(
+                METRO_TILE_ORDER,
+                null,
+            )
+            ?.split(",")
+            ?.filter { it in defaults }
+            .orEmpty()
+
+    return (saved + defaults).distinct()
+}
+
+
+private fun saveMetroTileOrder(
+    context: Context,
+    order: List<String>,
+) {
+    context
+        .getSharedPreferences(
+            METRO_TILE_PREFS,
+            Context.MODE_PRIVATE,
+        )
+        .edit()
+        .putString(
+            METRO_TILE_ORDER,
+            order.joinToString(","),
+        )
+        .apply()
+}
+
+
+private fun moveMetroTile(
+    order: List<String>,
+    source: String,
+    target: String,
+    placeAfter: Boolean,
+): List<String> {
+    if (source == target) {
+        return order
+    }
+
+    val result =
+        order
+            .filterNot { it == source }
+            .toMutableList()
+
+    val targetIndex =
+        result.indexOf(target)
+
+    if (targetIndex < 0) {
+        return order
+    }
+
+    val insertIndex =
+        targetIndex +
+            if (placeAfter) {
+                1
+            } else {
+                0
+            }
+
+    result.add(
+        insertIndex.coerceIn(
+            0,
+            result.size,
+        ),
+        source,
+    )
+
+    return result
 }
 
 
@@ -1148,10 +1281,6 @@ private fun loadMetroTileSize(
             )
             .getString(key, null)
 
-    if (stored == "Large") {
-        return MetroTileSize.Wide
-    }
-
     return MetroTileSize
         .values()
         .firstOrNull { it.name == stored }
@@ -1184,14 +1313,18 @@ private fun Modifier.metroTileDimensions(
         when (tileSize) {
             MetroTileSize.Small -> 1
             MetroTileSize.Medium -> 2
-            MetroTileSize.Wide -> 4
+            MetroTileSize.Wide,
+            MetroTileSize.Large -> 4
         }
 
     val heightUnits =
         when (tileSize) {
             MetroTileSize.Small -> 1
+
             MetroTileSize.Medium,
             MetroTileSize.Wide -> 2
+
+            MetroTileSize.Large -> 4
         }
 
     val tileWidth =
@@ -1214,6 +1347,7 @@ private fun MetroTileDashboard(
     allowUpload: Boolean,
     busy: Boolean,
     showMoreTiles: Boolean,
+    editMode: Boolean,
     onUpload: () -> Unit,
     onCreateDirectory: () -> Unit,
 ) {
@@ -1222,6 +1356,42 @@ private fun MetroTileDashboard(
     }
 
     val context = LocalContext.current
+
+    var tileOrder by remember(context) {
+        mutableStateOf(
+            loadMetroTileOrder(context),
+        )
+    }
+
+    val tileBounds = remember {
+        mutableStateMapOf<String, Rect>()
+    }
+
+    var draggingTile by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    /*
+     * Absolute pointer position inside the dashboard.
+     *
+     * The drag preview uses this directly and therefore does
+     * not care where FlowRow moves the placeholder.
+     */
+    var dragPosition by remember {
+        mutableStateOf<Offset?>(null)
+    }
+
+    var dragStartOrder by remember {
+        mutableStateOf<List<String>?>(null)
+    }
+
+    var lastReorderTarget by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var lastReorderAfter by remember {
+        mutableStateOf<Boolean?>(null)
+    }
 
     var uploadSize by remember(context) {
         mutableStateOf(
@@ -1263,13 +1433,6 @@ private fun MetroTileDashboard(
     ) {
         val gap = 8.dp
 
-        // Windows 10 Mobile-inspired Start layout.
-        //
-        // Default:
-        // 6 small units = 3 medium tiles.
-        //
-        // "Show more tiles":
-        // 8 small units = 4 medium tiles = 2 wide tiles.
         val gridUnits =
             if (showMoreTiles) {
                 8
@@ -1283,6 +1446,32 @@ private fun MetroTileDashboard(
                     gap * (gridUnits - 1)
             ) / gridUnits
 
+        val availableTiles =
+            buildSet {
+                if (allowUpload) {
+                    add(METRO_TILE_UPLOAD)
+                    add(METRO_TILE_DIRECTORY)
+                }
+
+                if (storage != null) {
+                    add(METRO_TILE_STORAGE)
+                }
+            }
+
+        val visibleOrder =
+            tileOrder.filter {
+                it in availableTiles
+            }
+
+        /*
+         * NORMAL FLOW
+         *
+         * The dragged item still owns its slot, so FlowRow can
+         * calculate and live-update the layout.
+         *
+         * ReorderableMetroTile hides the real content while it
+         * is being dragged.
+         */
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement =
@@ -1290,72 +1479,548 @@ private fun MetroTileDashboard(
             verticalArrangement =
                 Arrangement.spacedBy(gap),
         ) {
-            if (allowUpload) {
-                MetroActionTile(
-                    icon = MetroActionGlyphType.Upload,
-                    label = "Wyślij plik",
-                    enabled = !busy,
-                    tileSize = uploadSize,
-                    onClick = onUpload,
-                    onSizeChange = { newSize ->
-                        uploadSize = newSize
+            visibleOrder.forEach { tileId ->
+                key(tileId) {
+                    val tileModifier =
+                        when (tileId) {
+                            METRO_TILE_UPLOAD ->
+                                Modifier.metroTileDimensions(
+                                    uploadSize,
+                                    cellSize,
+                                    gap,
+                                )
 
-                        saveMetroTileSize(
-                            context,
-                            METRO_TILE_UPLOAD,
-                            newSize,
-                        )
-                    },
-                    modifier = Modifier.metroTileDimensions(
-                        uploadSize,
-                        cellSize,
-                        gap,
-                    ),
-                )
+                            METRO_TILE_DIRECTORY ->
+                                Modifier.metroTileDimensions(
+                                    directorySize,
+                                    cellSize,
+                                    gap,
+                                )
 
-                MetroActionTile(
-                    icon = MetroActionGlyphType.NewFolder,
-                    label = "Katalog",
-                    enabled = !busy,
-                    tileSize = directorySize,
-                    onClick = onCreateDirectory,
-                    onSizeChange = { newSize ->
-                        directorySize = newSize
+                            METRO_TILE_STORAGE ->
+                                Modifier.metroTileDimensions(
+                                    storageSize,
+                                    cellSize,
+                                    gap,
+                                )
 
-                        saveMetroTileSize(
-                            context,
-                            METRO_TILE_DIRECTORY,
-                            newSize,
-                        )
-                    },
-                    modifier = Modifier.metroTileDimensions(
-                        directorySize,
-                        cellSize,
-                        gap,
-                    ),
-                )
+                            else ->
+                                Modifier
+                        }
+
+                    ReorderableMetroTile(
+                        tileId = tileId,
+                        editMode = editMode,
+                        isDragging =
+                            draggingTile == tileId,
+                        onBoundsChanged = { bounds ->
+                            tileBounds[tileId] = bounds
+                        },
+                        onDragStart = {
+                            val bounds =
+                                tileBounds[tileId]
+
+                            if (bounds != null) {
+                                draggingTile = tileId
+                                dragPosition =
+                                    bounds.center
+                                dragStartOrder =
+                                    tileOrder
+
+                                lastReorderTarget = null
+                                lastReorderAfter = null
+                            }
+                        },
+                        onDrag = { amount ->
+                            val current =
+                                dragPosition
+
+                            if (current != null) {
+                                val next =
+                                    current + amount
+
+                                dragPosition = next
+
+                                val targetEntry =
+                                    tileBounds
+                                        .entries
+                                        .firstOrNull { entry ->
+                                            if (
+                                                entry.key ==
+                                                    tileId
+                                            ) {
+                                                false
+                                            } else {
+                                                val bounds =
+                                                    entry.value
+
+                                                val insetX =
+                                                    bounds.width *
+                                                        0.12f
+
+                                                val insetY =
+                                                    bounds.height *
+                                                        0.12f
+
+                                                val active =
+                                                    Rect(
+                                                        left =
+                                                            bounds.left +
+                                                                insetX,
+                                                        top =
+                                                            bounds.top +
+                                                                insetY,
+                                                        right =
+                                                            bounds.right -
+                                                                insetX,
+                                                        bottom =
+                                                            bounds.bottom -
+                                                                insetY,
+                                                    )
+
+                                                active.contains(next)
+                                            }
+                                        }
+
+                                if (targetEntry != null) {
+                                    val target =
+                                        targetEntry.key
+
+                                    val bounds =
+                                        targetEntry.value
+
+                                    val center =
+                                        bounds.center
+
+                                    val horizontal =
+                                        (
+                                            next.x -
+                                                center.x
+                                        ) /
+                                            bounds.width
+
+                                    val vertical =
+                                        (
+                                            next.y -
+                                                center.y
+                                        ) /
+                                            bounds.height
+
+                                    val placeAfter =
+                                        if (
+                                            kotlin.math.abs(
+                                                vertical,
+                                            ) >
+                                            kotlin.math.abs(
+                                                horizontal,
+                                            )
+                                        ) {
+                                            vertical > 0f
+                                        } else {
+                                            horizontal > 0f
+                                        }
+
+                                    val anchorChanged =
+                                        target !=
+                                            lastReorderTarget ||
+                                            placeAfter !=
+                                                lastReorderAfter
+
+                                    if (anchorChanged) {
+                                        val updated =
+                                            moveMetroTile(
+                                                order =
+                                                    tileOrder,
+                                                source =
+                                                    tileId,
+                                                target =
+                                                    target,
+                                                placeAfter =
+                                                    placeAfter,
+                                            )
+
+                                        if (
+                                            updated !=
+                                                tileOrder
+                                        ) {
+                                            tileOrder =
+                                                updated
+                                        }
+
+                                        lastReorderTarget =
+                                            target
+
+                                        lastReorderAfter =
+                                            placeAfter
+                                    }
+                                } else {
+                                    lastReorderTarget = null
+                                    lastReorderAfter = null
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            saveMetroTileOrder(
+                                context,
+                                tileOrder,
+                            )
+
+                            draggingTile = null
+                            dragPosition = null
+                            dragStartOrder = null
+                            lastReorderTarget = null
+                            lastReorderAfter = null
+                        },
+                        onDragCancel = {
+                            dragStartOrder?.let {
+                                tileOrder = it
+                            }
+
+                            draggingTile = null
+                            dragPosition = null
+                            dragStartOrder = null
+                            lastReorderTarget = null
+                            lastReorderAfter = null
+                        },
+                        modifier = tileModifier,
+                    ) {
+                        when (tileId) {
+                            METRO_TILE_UPLOAD -> {
+                                MetroActionTile(
+                                    icon =
+                                        MetroActionGlyphType.Upload,
+                                    label = "Wyślij plik",
+                                    enabled = !busy,
+                                    tileSize = uploadSize,
+                                    onClick = onUpload,
+                                    onSizeChange = { newSize ->
+                                        uploadSize = newSize
+
+                                        saveMetroTileSize(
+                                            context,
+                                            METRO_TILE_UPLOAD,
+                                            newSize,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.fillMaxSize(),
+                                )
+                            }
+
+                            METRO_TILE_DIRECTORY -> {
+                                MetroActionTile(
+                                    icon =
+                                        MetroActionGlyphType.NewFolder,
+                                    label = "Katalog",
+                                    enabled = !busy,
+                                    tileSize = directorySize,
+                                    onClick =
+                                        onCreateDirectory,
+                                    onSizeChange = { newSize ->
+                                        directorySize = newSize
+
+                                        saveMetroTileSize(
+                                            context,
+                                            METRO_TILE_DIRECTORY,
+                                            newSize,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.fillMaxSize(),
+                                )
+                            }
+
+                            METRO_TILE_STORAGE -> {
+                                storage?.let {
+                                    StorageTile(
+                                        storage = it,
+                                        tileSize = storageSize,
+                                        onSizeChange = { newSize ->
+                                            storageSize =
+                                                newSize
+
+                                            saveMetroTileSize(
+                                                context,
+                                                METRO_TILE_STORAGE,
+                                                newSize,
+                                            )
+                                        },
+                                        modifier =
+                                            Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        }
 
-            if (storage != null) {
-                StorageTile(
-                    storage = storage,
-                    tileSize = storageSize,
-                    onSizeChange = { newSize ->
-                        storageSize = newSize
+        /*
+         * DRAG OVERLAY
+         *
+         * This is the ONLY visible copy of the dragged tile.
+         *
+         * It is positioned from the absolute pointer position,
+         * independently of the tile's current FlowRow slot.
+         */
+        val activeTile =
+            draggingTile
 
-                        saveMetroTileSize(
-                            context,
-                            METRO_TILE_STORAGE,
-                            newSize,
-                        )
-                    },
-                    modifier = Modifier.metroTileDimensions(
-                        storageSize,
-                        cellSize,
-                        gap,
-                    ),
-                )
+        val pointer =
+            dragPosition
+
+        if (
+            activeTile != null &&
+            pointer != null
+        ) {
+            val bounds =
+                tileBounds[activeTile]
+
+            if (bounds != null) {
+                val previewModifier =
+                    when (activeTile) {
+                        METRO_TILE_UPLOAD ->
+                            Modifier.metroTileDimensions(
+                                uploadSize,
+                                cellSize,
+                                gap,
+                            )
+
+                        METRO_TILE_DIRECTORY ->
+                            Modifier.metroTileDimensions(
+                                directorySize,
+                                cellSize,
+                                gap,
+                            )
+
+                        METRO_TILE_STORAGE ->
+                            Modifier.metroTileDimensions(
+                                storageSize,
+                                cellSize,
+                                gap,
+                            )
+
+                        else ->
+                            Modifier
+                    }
+
+                Box(
+                    modifier = previewModifier
+                        .graphicsLayer {
+                            translationX =
+                                pointer.x -
+                                    bounds.width / 2f
+
+                            translationY =
+                                pointer.y -
+                                    bounds.height / 2f
+
+                            scaleX = 1.035f
+                            scaleY = 1.035f
+                            alpha = 0.92f
+                        }
+                        .zIndex(100f),
+                ) {
+                    when (activeTile) {
+                        METRO_TILE_UPLOAD -> {
+                            MetroActionTile(
+                                icon =
+                                    MetroActionGlyphType.Upload,
+                                label = "Wyślij plik",
+                                enabled = true,
+                                tileSize = uploadSize,
+                                onClick = {},
+                                onSizeChange = {},
+                                modifier =
+                                    Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        METRO_TILE_DIRECTORY -> {
+                            MetroActionTile(
+                                icon =
+                                    MetroActionGlyphType.NewFolder,
+                                label = "Katalog",
+                                enabled = true,
+                                tileSize = directorySize,
+                                onClick = {},
+                                onSizeChange = {},
+                                modifier =
+                                    Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        METRO_TILE_STORAGE -> {
+                            storage?.let {
+                                StorageTile(
+                                    storage = it,
+                                    tileSize = storageSize,
+                                    onSizeChange = {},
+                                    modifier =
+                                        Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    }
+                }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun ReorderableMetroTile(
+    tileId: String,
+    editMode: Boolean,
+    isDragging: Boolean,
+    onBoundsChanged: (Rect) -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+
+    /*
+     * Translation used only for automatic reflow animation.
+     *
+     * The dragged tile itself never uses these offsets.
+     */
+    val reflowX = remember(tileId) {
+        Animatable(0f)
+    }
+
+    val reflowY = remember(tileId) {
+        Animatable(0f)
+    }
+
+    var previousBounds by remember(tileId) {
+        mutableStateOf<Rect?>(null)
+    }
+
+    Box(
+        modifier = modifier
+            .onGloballyPositioned { coordinates ->
+                val newBounds =
+                    coordinates.boundsInParent()
+
+                /*
+                 * Drag/drop hit testing always receives the real
+                 * FlowRow slot, not the animated visual position.
+                 */
+                onBoundsChanged(newBounds)
+
+                val oldBounds =
+                    previousBounds
+
+                if (
+                    !isDragging &&
+                    oldBounds != null
+                ) {
+                    val dx =
+                        oldBounds.left -
+                            newBounds.left
+
+                    val dy =
+                        oldBounds.top -
+                            newBounds.top
+
+                    /*
+                     * Ignore sub-pixel layout noise.
+                     */
+                    if (
+                        kotlin.math.abs(dx) > 0.5f ||
+                        kotlin.math.abs(dy) > 0.5f
+                    ) {
+                        /*
+                         * Preserve the tile's previous visual
+                         * position even if another animation was
+                         * already running.
+                         */
+                        val startX =
+                            reflowX.value + dx
+
+                        val startY =
+                            reflowY.value + dy
+
+                        scope.launch {
+                            reflowX.snapTo(startX)
+
+                            reflowX.animateTo(
+                                targetValue = 0f,
+                                animationSpec = tween(
+                                    durationMillis = 150,
+                                ),
+                            )
+                        }
+
+                        scope.launch {
+                            reflowY.snapTo(startY)
+
+                            reflowY.animateTo(
+                                targetValue = 0f,
+                                animationSpec = tween(
+                                    durationMillis = 150,
+                                ),
+                            )
+                        }
+                    }
+                }
+
+                previousBounds =
+                    newBounds
+            }
+            .pointerInput(
+                editMode,
+                tileId,
+            ) {
+                if (editMode) {
+                    detectDragGestures(
+                        onDragStart = {
+                            onDragStart()
+                        },
+                        onDragEnd = {
+                            onDragEnd()
+                        },
+                        onDragCancel = {
+                            onDragCancel()
+                        },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            onDrag(amount)
+                        },
+                    )
+                }
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    /*
+                     * The real dragged tile remains hidden because
+                     * the detached dashboard overlay is the visible
+                     * copy under the user's finger.
+                     *
+                     * Other tiles receive only the short reflow
+                     * translation animation.
+                     */
+                    if (isDragging) {
+                        alpha = 0f
+                        translationX = 0f
+                        translationY = 0f
+                    } else {
+                        alpha = 1f
+                        translationX = reflowX.value
+                        translationY = reflowY.value
+                    }
+                },
+        ) {
+            content()
         }
     }
 }
@@ -1420,30 +2085,49 @@ private fun MetroActionTile(
                 val compact =
                     tileSize == MetroTileSize.Medium
 
+                val large =
+                    tileSize == MetroTileSize.Large
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            if (compact) 7.dp else 10.dp,
+                            when {
+                                compact -> 8.dp
+                                large -> 14.dp
+                                else -> 10.dp
+                            },
                         ),
-                    verticalArrangement =
-                        Arrangement.SpaceBetween,
                 ) {
                     MetroActionGlyph(
                         type = icon,
                         glyphSize =
-                            if (compact) 22.dp else 24.dp,
+                            when {
+                                compact -> 22.dp
+                                large -> 38.dp
+                                else -> 24.dp
+                            },
+                    )
+
+                    Spacer(
+                        modifier = Modifier.weight(1f),
                     )
 
                     Text(
                         text = label,
                         style =
-                            if (compact) {
-                                MaterialTheme.typography.bodySmall
-                            } else {
-                                MaterialTheme.typography.bodyMedium
+                            when {
+                                compact ->
+                                    MaterialTheme.typography.bodySmall
+
+                                large ->
+                                    MaterialTheme.typography.titleMedium
+
+                                else ->
+                                    MaterialTheme.typography.bodyMedium
                             },
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 2,
                     )
                 }
             }
@@ -1608,6 +2292,72 @@ private fun StorageTile(
                             color =
                                 MaterialTheme.colorScheme
                                     .onSurfaceVariant,
+                        )
+                    }
+                }
+
+                MetroTileSize.Large -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.SpaceBetween,
+                            verticalAlignment =
+                                Alignment.Top,
+                        ) {
+                            Text(
+                                text = "Pamięć",
+                                style =
+                                    MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1,
+                            )
+
+                            Text(
+                                text = String.format(
+                                    Locale.getDefault(),
+                                    "%.1f%%",
+                                    percentage,
+                                ),
+                                style =
+                                    MaterialTheme.typography.bodyLarge,
+                                color =
+                                    MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+
+                        Spacer(
+                            modifier = Modifier.height(14.dp),
+                        )
+
+                        Text(
+                            text =
+                                "${formatBytes(storage.used)}\nzajęte",
+                            style =
+                                MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 2,
+                        )
+
+                        Spacer(
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        Text(
+                            text =
+                                "Wolne: ${formatBytes(storage.available)}",
+                            style =
+                                MaterialTheme.typography.bodyMedium,
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            maxLines = 1,
                         )
                     }
                 }
