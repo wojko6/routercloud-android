@@ -1545,3 +1545,82 @@ Stary applyMetroTileSizeChange() nadal nie jest migrowany.
 Najpierw tworzymy testy resize T15-T18.
 Dopiero potem podpinamy resolver do UI.
 
+
+
+## Metro Tile Engine - GREEN checkpoint resize T15-T18
+
+Przetestowano resize przez ten sam resolver,
+ktory obsluguje drag i reflow.
+
+### T15 PASS
+
+Resize bez kolizji:
+
+- Small -> Medium
+- pozycja top-left zostaje zachowana
+- pozostale kafelki nie ruszaja sie
+- requestedSize zostaje zaakceptowany
+- finalny layout przechodzi validator
+
+### T16 PASS
+
+Resize z jedna kolizja:
+
+- powiekszany kafelek ma pierwszenstwo
+- sasiad zostaje displaced
+- sasiad otrzymuje legalna pozycje
+- caly wynik przechodzi validator
+
+### T17 PASS
+
+Resize z wieloma kolizjami:
+
+- Medium -> Large
+- dwa Medium zostaja jednoczesnie displaced
+- reflow jest atomowy
+- wszystkie kafelki musza znalezc legalne pozycje
+- finalny layout przechodzi validator
+
+### T18 PASS
+
+Resize wychodzacy poza workspace:
+
+- resolver zwraca null
+- resize jest REJECT
+- stary rozmiar pozostaje bez zmian
+- stara pozycja pozostaje bez zmian
+- workspaceRows = 4 jest respektowane
+
+### Aktualny status
+
+- T01 = PASS
+- T02 = PASS
+- T07 = PASS
+- T08 = PASS
+- T12 = PASS
+- T14 = PASS
+- T15 = PASS
+- T16 = PASS
+- T17 = PASS
+- T18 = PASS
+- resolver tests = PASS
+- validator tests = PASS
+- all unit tests = PASS
+- assembleDebug = PASS
+
+### Nastepny krok
+
+Integracja nowego Tile Engine z UI.
+
+Kolejnosc:
+
+1. podpiac resize pod resolveMetroTileLayoutChange()
+2. usunac z resize uzycie findNearestFreeMetroTilePosition()
+3. zachowac atomowe ACCEPT / REJECT
+4. zapis persistence tylko po ACCEPT
+5. test manualny na telefonie
+6. dopiero potem przepiac drag
+
+Stary resolver drag pozostaje tymczasowo bez zmian,
+dopoki resize nie zostanie zweryfikowany w UI.
+

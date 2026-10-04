@@ -507,4 +507,402 @@ class MetroTileLayoutResolverTest {
         )
     }
 
+
+    @Test
+    fun t15_resizeWithoutCollision_keepsPosition() {
+        val positions =
+            mapOf(
+                "resized" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                "other" to
+                    MetroTilePosition(
+                        column = 4,
+                        row = 0,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "resized" to MetroTileSize.Small,
+                "other" to MetroTileSize.Medium,
+            )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "resized",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                requestedSize =
+                    MetroTileSize.Medium,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "other",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            )
+
+        assertNotNull(result)
+
+        result!!
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 0,
+            ),
+            result.positions["resized"],
+        )
+
+        assertEquals(
+            MetroTileSize.Medium,
+            result.sizes["resized"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 0,
+            ),
+            result.positions["other"],
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = result.positions,
+                sizes = result.sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "other",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
+
+    @Test
+    fun t16_resizeWithOneCollision_movesNeighbor() {
+        val positions =
+            mapOf(
+                "resized" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                "neighbor" to
+                    MetroTilePosition(
+                        column = 1,
+                        row = 0,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "resized" to MetroTileSize.Small,
+                "neighbor" to MetroTileSize.Medium,
+            )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "neighbor",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            ),
+        )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "resized",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                requestedSize =
+                    MetroTileSize.Medium,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "neighbor",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            )
+
+        assertNotNull(result)
+
+        result!!
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 0,
+            ),
+            result.positions["resized"],
+        )
+
+        assertEquals(
+            MetroTileSize.Medium,
+            result.sizes["resized"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 2,
+                row = 0,
+            ),
+            result.positions["neighbor"],
+        )
+
+        assertEquals(
+            MetroTileSize.Medium,
+            result.sizes["neighbor"],
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = result.positions,
+                sizes = result.sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "neighbor",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
+
+    @Test
+    fun t17_resizeWithMultipleCollisions_reflowsAtomically() {
+        val positions =
+            mapOf(
+                "resized" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                "top" to
+                    MetroTilePosition(
+                        column = 2,
+                        row = 0,
+                    ),
+                "bottom" to
+                    MetroTilePosition(
+                        column = 2,
+                        row = 2,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "resized" to MetroTileSize.Medium,
+                "top" to MetroTileSize.Medium,
+                "bottom" to MetroTileSize.Medium,
+            )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "top",
+                        "bottom",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            ),
+        )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "resized",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                requestedSize =
+                    MetroTileSize.Large,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "top",
+                        "bottom",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            )
+
+        assertNotNull(result)
+
+        result!!
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 0,
+            ),
+            result.positions["resized"],
+        )
+
+        assertEquals(
+            MetroTileSize.Large,
+            result.sizes["resized"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 0,
+            ),
+            result.positions["top"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 2,
+            ),
+            result.positions["bottom"],
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = result.positions,
+                sizes = result.sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "top",
+                        "bottom",
+                    ),
+                gridUnits = 8,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
+
+    @Test
+    fun t18_resizeOutsideWorkspace_isRejected() {
+        val positions =
+            mapOf(
+                "resized" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 2,
+                    ),
+                "other" to
+                    MetroTilePosition(
+                        column = 4,
+                        row = 0,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "resized" to MetroTileSize.Medium,
+                "other" to MetroTileSize.Medium,
+            )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "other",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            ),
+        )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "resized",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 0,
+                        row = 2,
+                    ),
+                requestedSize =
+                    MetroTileSize.Large,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "other",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            )
+
+        assertNull(result)
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 2,
+            ),
+            positions["resized"],
+        )
+
+        assertEquals(
+            MetroTileSize.Medium,
+            sizes["resized"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 4,
+                row = 0,
+            ),
+            positions["other"],
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "resized",
+                        "other",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
 }
