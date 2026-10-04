@@ -1697,3 +1697,58 @@ Nastepny krok:
 6. ponownie uruchomic testy i build
 7. wykonac krotki smoke test na telefonie
 
+
+
+## Metro Tile Engine - GREEN bounded drag and adaptive resize
+
+Finalna sciezka UI zostala zweryfikowana manualnie
+na urzadzeniu.
+
+### Drag
+
+- drag korzysta z resolveMetroTileLayoutChange()
+- logiczny workspace jest ograniczony do 4 wierszy
+- overlay moze podazac za palcem poza workspace
+- pozycja logiczna poza workspace jest odrzucana
+- dashboard nie zwieksza wysokosci podczas drag
+- lista plikow pozostaje na stalej pozycji
+- reflow miedzy kafelkami dziala prawidlowo
+- onDragCancel przywraca stan poczatkowy
+- onDragEnd zapisuje tylko legalny layout
+
+### Resize
+
+- resize korzysta z tego samego Tile Engine co drag
+- kolizje sa rozwiazywane atomowo
+- niemozliwy rozmiar nie psuje layoutu
+- sterowanie nie blokuje sie na niemozliwym rozmiarze
+- kafelek przy prawej lub dolnej krawedzi moze zmienic
+  anchor na najblizsza legalna pozycje podczas resize
+- np. Medium -> Wide nie jest blokowane tylko dlatego,
+  ze aktualny lewy-gorny anchor lezy zbyt blisko krawedzi
+
+### Startup
+
+- stare nielegalne layouty sa walidowane
+- fallback korzysta z bounded packera
+- zapis nie moze wychodzic poza workspace
+
+### Manual smoke test
+
+PASS:
+
+- resize
+- resize przy krawedzi
+- drag na wolne miejsce
+- drag na zajete miejsce
+- reflow
+- drag poza workspace
+- stala wysokosc dashboardu
+- brak spychania listy plikow
+
+Pozostale zadania Tile Engine:
+
+- persistence rozmiarow osobno dla grid 6 i grid 8
+- testy persistence i density switch T20-T23
+- finalny invariant/stress test T24
+
