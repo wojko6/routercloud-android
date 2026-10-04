@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.graphics.RectangleShape
@@ -93,6 +94,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.Locale
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 
 private data class TextPreviewState(
     val fileName: String,
@@ -1028,6 +1033,9 @@ private fun FilesScreen(
             busy = busy,
             showMoreTiles = showMoreTiles,
             editMode = tileEditMode,
+            onEditModeChange = {
+                tileEditMode = it
+            },
             onUpload = onUpload,
             onCreateDirectory = onCreateDirectory,
         )
@@ -1304,6 +1312,24 @@ private fun saveMetroTileSize(
 }
 
 
+private fun nextMetroTileSize(
+    current: MetroTileSize,
+): MetroTileSize =
+    when (current) {
+        MetroTileSize.Small ->
+            MetroTileSize.Medium
+
+        MetroTileSize.Medium ->
+            MetroTileSize.Wide
+
+        MetroTileSize.Wide ->
+            MetroTileSize.Large
+
+        MetroTileSize.Large ->
+            MetroTileSize.Small
+    }
+
+
 private fun Modifier.metroTileDimensions(
     tileSize: MetroTileSize,
     cellSize: Dp,
@@ -1348,6 +1374,7 @@ private fun MetroTileDashboard(
     busy: Boolean,
     showMoreTiles: Boolean,
     editMode: Boolean,
+    onEditModeChange: (Boolean) -> Unit,
     onUpload: () -> Unit,
     onCreateDirectory: () -> Unit,
 ) {
@@ -1369,6 +1396,16 @@ private fun MetroTileDashboard(
 
     var draggingTile by remember {
         mutableStateOf<String?>(null)
+    }
+
+    var selectedTile by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    LaunchedEffect(editMode) {
+        if (!editMode) {
+            selectedTile = null
+        }
     }
 
     /*
@@ -1521,6 +1558,8 @@ private fun MetroTileDashboard(
                                 tileBounds[tileId]
 
                             if (bounds != null) {
+                                selectedTile = tileId
+                                onEditModeChange(true)
                                 draggingTile = tileId
                                 dragPosition =
                                     bounds.center
@@ -1690,9 +1729,17 @@ private fun MetroTileDashboard(
                                     icon =
                                         MetroActionGlyphType.Upload,
                                     label = "Wyślij plik",
-                                    enabled = !busy,
+                                    enabled = !busy && !editMode,
                                     tileSize = uploadSize,
                                     onClick = onUpload,
+                                    onLongClick = {
+                                        selectedTile = tileId
+                                        onEditModeChange(true)
+                                    },
+                                    showResizeControl =
+                                        editMode &&
+                                            selectedTile == tileId &&
+                                            draggingTile == null,
                                     onSizeChange = { newSize ->
                                         uploadSize = newSize
 
@@ -1712,10 +1759,18 @@ private fun MetroTileDashboard(
                                     icon =
                                         MetroActionGlyphType.NewFolder,
                                     label = "Katalog",
-                                    enabled = !busy,
+                                    enabled = !busy && !editMode,
                                     tileSize = directorySize,
                                     onClick =
                                         onCreateDirectory,
+                                    onLongClick = {
+                                        selectedTile = tileId
+                                        onEditModeChange(true)
+                                    },
+                                    showResizeControl =
+                                        editMode &&
+                                            selectedTile == tileId &&
+                                            draggingTile == null,
                                     onSizeChange = { newSize ->
                                         directorySize = newSize
 
@@ -1735,6 +1790,14 @@ private fun MetroTileDashboard(
                                     StorageTile(
                                         storage = it,
                                         tileSize = storageSize,
+                                        onLongClick = {
+                                            selectedTile = tileId
+                                            onEditModeChange(true)
+                                        },
+                                        showResizeControl =
+                                            editMode &&
+                                                selectedTile == tileId &&
+                                                draggingTile == null,
                                         onSizeChange = { newSize ->
                                             storageSize =
                                                 newSize
@@ -2035,12 +2098,10 @@ private fun MetroActionTile(
     tileSize: MetroTileSize,
     onClick: () -> Unit,
     onSizeChange: (MetroTileSize) -> Unit,
+    onLongClick: () -> Unit = {},
+    showResizeControl: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    var sizeMenuExpanded by remember {
-        mutableStateOf(false)
-    }
-
     Box(
         modifier = modifier,
     ) {
@@ -2053,9 +2114,7 @@ private fun MetroActionTile(
                             onClick()
                         }
                     },
-                    onLongClick = {
-                        sizeMenuExpanded = true
-                    },
+                    onLongClick = onLongClick,
                 ),
             shape = RectangleShape,
             color =
@@ -2167,18 +2226,22 @@ private fun MetroActionTile(
             }
         }
 
-        MetroTileSizeMenu(
-            expanded = sizeMenuExpanded,
-            currentSize = tileSize,
-            onDismiss = {
-                sizeMenuExpanded = false
-            },
-            onSizeChange = {
-                sizeMenuExpanded = false
-                onSizeChange(it)
-            },
-        )
-    }
+        if (showResizeControl) {
+            MetroResizeHandle(
+                onClick = {
+                    onSizeChange(
+                        nextMetroTileSize(tileSize),
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(5.dp),
+            )
+        }
+
+
+
+}
 }
 
 
@@ -2188,6 +2251,8 @@ private fun StorageTile(
     storage: RouterCloudStorage,
     tileSize: MetroTileSize,
     onSizeChange: (MetroTileSize) -> Unit,
+    onLongClick: () -> Unit = {},
+    showResizeControl: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val percentage =
@@ -2201,10 +2266,6 @@ private fun StorageTile(
             0.0
         }
 
-    var sizeMenuExpanded by remember {
-        mutableStateOf(false)
-    }
-
     Box(
         modifier = modifier,
     ) {
@@ -2213,9 +2274,7 @@ private fun StorageTile(
                 .fillMaxSize()
                 .combinedClickable(
                     onClick = {},
-                    onLongClick = {
-                        sizeMenuExpanded = true
-                    },
+                    onLongClick = onLongClick,
                 ),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
@@ -2394,17 +2453,103 @@ private fun StorageTile(
             }
         }
 
-        MetroTileSizeMenu(
-            expanded = sizeMenuExpanded,
-            currentSize = tileSize,
-            onDismiss = {
-                sizeMenuExpanded = false
-            },
-            onSizeChange = {
-                sizeMenuExpanded = false
-                onSizeChange(it)
-            },
+        if (showResizeControl) {
+            MetroResizeHandle(
+                onClick = {
+                    onSizeChange(
+                        nextMetroTileSize(tileSize),
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(5.dp),
+            )
+        }
+
+
+
+}
+}
+
+
+@Composable
+private fun MetroResizeHandle(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val glyphColor =
+        MaterialTheme.colorScheme.onSurface.copy(
+            alpha = 0.96f,
         )
+
+    Box(
+        modifier = modifier
+            .requiredSize(28.dp)
+            .zIndex(50f)
+            .clickable(
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            val lineWidth =
+                1.6.dp.toPx()
+
+            // Circular Windows Phone style control.
+            drawCircle(
+                color = glyphColor,
+                radius = size.width * 0.42f,
+                style = Stroke(
+                    width = lineWidth,
+                ),
+            )
+
+            // Diagonal stem.
+            val tip =
+                Offset(
+                    x = size.width * 0.34f,
+                    y = size.height * 0.34f,
+                )
+
+            val tail =
+                Offset(
+                    x = size.width * 0.67f,
+                    y = size.height * 0.67f,
+                )
+
+            drawLine(
+                color = glyphColor,
+                start = tail,
+                end = tip,
+                strokeWidth = lineWidth,
+                cap = StrokeCap.Round,
+            )
+
+            // Upper-left arrow head.
+            drawLine(
+                color = glyphColor,
+                start = tip,
+                end = Offset(
+                    x = size.width * 0.34f,
+                    y = size.height * 0.51f,
+                ),
+                strokeWidth = lineWidth,
+                cap = StrokeCap.Round,
+            )
+
+            drawLine(
+                color = glyphColor,
+                start = tip,
+                end = Offset(
+                    x = size.width * 0.51f,
+                    y = size.height * 0.34f,
+                ),
+                strokeWidth = lineWidth,
+                cap = StrokeCap.Round,
+            )
+        }
     }
 }
 
