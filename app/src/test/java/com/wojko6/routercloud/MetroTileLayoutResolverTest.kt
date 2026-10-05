@@ -174,6 +174,90 @@ class MetroTileLayoutResolverTest {
         )
     }
 
+
+    @Test
+    fun t03_lowerMediumDraggedOntoUpperOccupiedSlot_displacesExistingTile() {
+        val positions =
+            mapOf(
+                "upper" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                "lower" to
+                    MetroTilePosition(
+                        column = 0,
+                        row = 2,
+                    ),
+            )
+
+        val sizes =
+            mapOf(
+                "upper" to MetroTileSize.Medium,
+                "lower" to MetroTileSize.Medium,
+            )
+
+        val result =
+            resolveMetroTileLayoutChange(
+                tileId = "lower",
+                requestedPosition =
+                    MetroTilePosition(
+                        column = 0,
+                        row = 0,
+                    ),
+                requestedSize =
+                    MetroTileSize.Medium,
+                positions = positions,
+                sizes = sizes,
+                tileIds =
+                    listOf(
+                        "upper",
+                        "lower",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            )
+
+        assertNotNull(result)
+
+        result!!
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 0,
+            ),
+            result.positions["lower"],
+        )
+
+        assertEquals(
+            MetroTilePosition(
+                column = 0,
+                row = 2,
+            ),
+            result.positions["upper"],
+        )
+
+        assertEquals(
+            sizes,
+            result.sizes,
+        )
+
+        assertTrue(
+            validateMetroTileLayout(
+                positions = result.positions,
+                sizes = result.sizes,
+                tileIds =
+                    listOf(
+                        "upper",
+                        "lower",
+                    ),
+                gridUnits = 6,
+                workspaceRows = 4,
+            ),
+        )
+    }
+
     @Test
     fun t12_mediumDraggedBelowWorkspace_isRejected() {
         val positions =

@@ -1692,27 +1692,56 @@ private fun saveMetroShowMoreTiles(
 
 private fun loadMetroTileSize(
     context: Context,
-    key: String,
+    tileId: String,
+    gridUnits: Int,
     default: MetroTileSize,
 ): MetroTileSize {
-    val stored =
+    val preferences =
         context
             .getSharedPreferences(
                 METRO_TILE_PREFS,
                 Context.MODE_PRIVATE,
             )
-            .getString(key, null)
 
-    return MetroTileSize
-        .values()
-        .firstOrNull { it.name == stored }
-        ?: default
+    val perGridKey =
+        metroTileSizePreferenceKey(
+            tileId = tileId,
+            gridUnits = gridUnits,
+        )
+
+    val resolution =
+        resolveMetroTileSizePreference(
+            perGridStored =
+                preferences.getString(
+                    perGridKey,
+                    null,
+                ),
+            legacyStored =
+                preferences.getString(
+                    tileId,
+                    null,
+                ),
+            default = default,
+        )
+
+    if (resolution.shouldMigrateLegacy) {
+        preferences
+            .edit()
+            .putString(
+                perGridKey,
+                resolution.size.name,
+            )
+            .apply()
+    }
+
+    return resolution.size
 }
 
 
 private fun saveMetroTileSize(
     context: Context,
-    key: String,
+    tileId: String,
+    gridUnits: Int,
     size: MetroTileSize,
 ) {
     context
@@ -1721,7 +1750,13 @@ private fun saveMetroTileSize(
             Context.MODE_PRIVATE,
         )
         .edit()
-        .putString(key, size.name)
+        .putString(
+            metroTileSizePreferenceKey(
+                tileId = tileId,
+                gridUnits = gridUnits,
+            ),
+            size.name,
+        )
         .apply()
 }
 
@@ -1838,42 +1873,54 @@ private fun MetroTileDashboard(
         >(null)
     }
 
-    var uploadSize by remember(context) {
-        mutableStateOf(
-            loadMetroTileSize(
-                context,
-                METRO_TILE_UPLOAD,
-                MetroTileSize.Medium,
-            ),
-        )
-    }
-
-    var directorySize by remember(context) {
-        mutableStateOf(
-            loadMetroTileSize(
-                context,
-                METRO_TILE_DIRECTORY,
-                MetroTileSize.Medium,
-            ),
-        )
-    }
-
-    var storageSize by remember(context) {
-        mutableStateOf(
-            loadMetroTileSize(
-                context,
-                METRO_TILE_STORAGE,
-                MetroTileSize.Wide,
-            ),
-        )
-    }
-
     val gridUnits =
         if (showMoreTiles) {
             8
         } else {
             6
         }
+
+    var uploadSize by remember(
+        context,
+        gridUnits,
+    ) {
+        mutableStateOf(
+            loadMetroTileSize(
+                context,
+                METRO_TILE_UPLOAD,
+                gridUnits,
+                MetroTileSize.Medium,
+            ),
+        )
+    }
+
+    var directorySize by remember(
+        context,
+        gridUnits,
+    ) {
+        mutableStateOf(
+            loadMetroTileSize(
+                context,
+                METRO_TILE_DIRECTORY,
+                gridUnits,
+                MetroTileSize.Medium,
+            ),
+        )
+    }
+
+    var storageSize by remember(
+        context,
+        gridUnits,
+    ) {
+        mutableStateOf(
+            loadMetroTileSize(
+                context,
+                METRO_TILE_STORAGE,
+                gridUnits,
+                MetroTileSize.Wide,
+            ),
+        )
+    }
 
     val currentTileSizes =
         mapOf(
@@ -2006,6 +2053,7 @@ private fun MetroTileDashboard(
                 saveMetroTileSize(
                     context,
                     tileId,
+                    gridUnits,
                     size,
                 )
             }
@@ -2224,6 +2272,7 @@ private fun MetroTileDashboard(
         saveMetroTileSize(
             context,
             tileId,
+            gridUnits,
             resolved.sizes.getValue(tileId),
         )
 
