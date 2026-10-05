@@ -717,6 +717,15 @@ private fun RouterCloudApp(
 
                     loadDirectory(parent)
                 },
+                onLock = {
+                    client.clearSession()
+
+                    password = ""
+                    currentPath = ""
+                    preview = null
+                    directory = null
+                    error = null
+                },
                 onLogout = {
                     scope.launch {
                         withContext(Dispatchers.IO) {
@@ -887,6 +896,7 @@ private fun FilesScreen(
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onBack: () -> Unit,
+    onLock: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val busy =
@@ -902,7 +912,7 @@ private fun FilesScreen(
         )
     }
 
-    var layoutMenuExpanded by remember {
+    var headerMenuExpanded by remember {
         mutableStateOf(false)
     }
 
@@ -949,54 +959,65 @@ private fun FilesScreen(
                 )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box {
-                    TextButton(
-                        onClick = {
-                            layoutMenuExpanded = true
-                        },
-                    ) {
-                        Text("Układ")
-                    }
-
-                    DropdownMenu(
-                        expanded = layoutMenuExpanded,
-                        onDismissRequest = {
-                            layoutMenuExpanded = false
-                        },
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text("Pokaż więcej kafelków")
-                            },
-                            trailingIcon = {
-                                Switch(
-                                    checked = showMoreTiles,
-                                    onCheckedChange = null,
-                                )
-                            },
-                            onClick = {
-                                showMoreTiles =
-                                    !showMoreTiles
-
-                                saveMetroShowMoreTiles(
-                                    context,
-                                    showMoreTiles,
-                                )
-
-                                layoutMenuExpanded = false
-                            },
-                        )
-                    }
+            Box {
+                TextButton(
+                    onClick = {
+                        headerMenuExpanded = true
+                    },
+                ) {
+                    Text("⋮")
                 }
 
-                TextButton(
-                    onClick = onLogout,
-                    enabled = !busy,
+                DropdownMenu(
+                    expanded = headerMenuExpanded,
+                    onDismissRequest = {
+                        headerMenuExpanded = false
+                    },
                 ) {
-                    Text("Wyloguj")
+                    DropdownMenuItem(
+                        text = {
+                            Text("Pokaż więcej kafelków")
+                        },
+                        trailingIcon = {
+                            Switch(
+                                checked = showMoreTiles,
+                                onCheckedChange = null,
+                            )
+                        },
+                        onClick = {
+                            showMoreTiles =
+                                !showMoreTiles
+
+                            saveMetroShowMoreTiles(
+                                context,
+                                showMoreTiles,
+                            )
+
+                            headerMenuExpanded = false
+                        },
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Zablokuj")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            headerMenuExpanded = false
+                            onLock()
+                        },
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Wyloguj")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            headerMenuExpanded = false
+                            onLogout()
+                        },
+                    )
                 }
             }
         }
