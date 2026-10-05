@@ -587,6 +587,21 @@ private fun RouterCloudApp(
                 onFingerprintUnlock = {
                     unlockWithFingerprint()
                 },
+                onForgotPassword = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse(
+                                    "https://cloud.home.arpa/__routercloud/login",
+                                ),
+                            ),
+                        )
+                    }.onFailure {
+                        error =
+                            "Nie udało się otworzyć odzyskiwania hasła."
+                    }
+                },
                 onLogin = {
                     if (username.isBlank() || password.isEmpty()) {
                         error = "Podaj login/e-mail i hasło."
@@ -804,80 +819,475 @@ private fun LoginScreen(
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onFingerprintUnlock: () -> Unit,
+    onForgotPassword: () -> Unit,
     onLogin: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+    val background =
+        androidx.compose.ui.graphics.Color(
+            0xFF070B12,
+        )
+
+    val panel =
+        androidx.compose.ui.graphics.Color(
+            0xFF0E1A2F,
+        )
+
+    val field =
+        androidx.compose.ui.graphics.Color(
+            0xFF21395B,
+        )
+
+    val fieldFocus =
+        androidx.compose.ui.graphics.Color(
+            0xFF25426C,
+        )
+
+    val border =
+        androidx.compose.ui.graphics.Color(
+            0xFF3D8BFF,
+        )
+
+    val borderSoft =
+        androidx.compose.ui.graphics.Color(
+            0x4D71A6EF,
+        )
+
+    val blue =
+        androidx.compose.ui.graphics.Color(
+            0xFF2F80FF,
+        )
+
+    val text =
+        androidx.compose.ui.graphics.Color(
+            0xFFF3F7FD,
+        )
+
+    val muted =
+        androidx.compose.ui.graphics.Color(
+            0xFF8F9DB2,
+        )
+
+    val errorColor =
+        androidx.compose.ui.graphics.Color(
+            0xFFED7777,
+        )
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = background,
     ) {
-        Text(
-            text = "RouterCloud",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-        )
-
-        Text(
-            text = "Prywatna chmura",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Text(
-            text = "Połączenie szyfrowane z cloud.home.arpa",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = onUsernameChange,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            singleLine = true,
-            label = { Text("Login lub e-mail") },
-        )
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPasswordChange,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            singleLine = true,
-            label = { Text("Hasło") },
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-            ),
-        )
-
-        if (error != null) {
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-
-        if (fingerprintAvailable) {
-            Button(
-                onClick = onFingerprintUnlock,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !loading,
-            ) {
-                Text("Odblokuj odciskiem palca")
-            }
-        }
-
-        Button(
-            onClick = onLogin,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
+        Box(
+            modifier = Modifier.fillMaxSize(),
         ) {
-            if (loading) {
-                CircularProgressIndicator()
-            } else {
-                Text("Zaloguj")
+            Canvas(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                drawCircle(
+                    color =
+                        blue.copy(
+                            alpha = 0.18f,
+                        ),
+                    radius =
+                        size.minDimension *
+                            0.62f,
+                    center =
+                        Offset(
+                            x =
+                                size.width *
+                                    0.08f,
+                            y =
+                                size.height *
+                                    0.12f,
+                        ),
+                )
+
+                drawCircle(
+                    color =
+                        blue.copy(
+                            alpha = 0.09f,
+                        ),
+                    radius =
+                        size.minDimension *
+                            0.70f,
+                    center =
+                        Offset(
+                            x =
+                                size.width *
+                                    0.90f,
+                            y =
+                                size.height *
+                                    0.78f,
+                        ),
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .safeDrawingPadding()
+                    .padding(
+                        horizontal = 20.dp,
+                        vertical = 24.dp,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    color = panel,
+                    shape = RectangleShape,
+                    border =
+                        androidx.compose.foundation
+                            .BorderStroke(
+                                width = 1.dp,
+                                color =
+                                    border.copy(
+                                        alpha = 0.68f,
+                                    ),
+                            ),
+                    shadowElevation = 18.dp,
+                ) {
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 26.dp,
+                                vertical = 32.dp,
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                18.dp,
+                            ),
+                    ) {
+                        /*
+                         * Branding follows the browser
+                         * RouterCloud composition:
+                         *
+                         * logo + RouterCloud centered
+                         * as one visual unit.
+                         */
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.Center,
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.foundation.Image(
+                                painter =
+                                    androidx.compose.ui.res
+                                        .painterResource(
+                                            id =
+                                                R.drawable.routercloud_brand,
+                                        ),
+                                contentDescription =
+                                    null,
+                                modifier =
+                                    Modifier.size(
+                                        76.dp,
+                                    ),
+                                contentScale =
+                                    androidx.compose.ui.layout
+                                        .ContentScale.Fit,
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(
+                                        18.dp,
+                                    ),
+                            )
+
+                            Text(
+                                text = "RouterCloud",
+                                color = text,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .headlineLarge,
+                                fontWeight =
+                                    FontWeight.Light,
+                                maxLines = 1,
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange =
+                                onUsernameChange,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                            enabled = !loading,
+                            singleLine = true,
+                            placeholder = {
+                                Text(
+                                    "Nazwa użytkownika lub e-mail",
+                                )
+                            },
+                            shape = RectangleShape,
+                            colors =
+                                androidx.compose.material3
+                                    .OutlinedTextFieldDefaults
+                                    .colors(
+                                        focusedTextColor =
+                                            text,
+                                        unfocusedTextColor =
+                                            text,
+                                        disabledTextColor =
+                                            text.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedContainerColor =
+                                            fieldFocus,
+                                        unfocusedContainerColor =
+                                            field,
+                                        disabledContainerColor =
+                                            field.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedBorderColor =
+                                            blue,
+                                        unfocusedBorderColor =
+                                            borderSoft,
+                                        disabledBorderColor =
+                                            borderSoft.copy(
+                                                alpha = 0.45f,
+                                            ),
+                                        cursorColor =
+                                            blue,
+                                        focusedPlaceholderColor =
+                                            muted,
+                                        unfocusedPlaceholderColor =
+                                            muted,
+                                        disabledPlaceholderColor =
+                                            muted.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                    ),
+                        )
+
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange =
+                                onPasswordChange,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                            enabled = !loading,
+                            singleLine = true,
+                            placeholder = {
+                                Text("Hasło")
+                            },
+                            visualTransformation =
+                                PasswordVisualTransformation(),
+                            keyboardOptions =
+                                KeyboardOptions(
+                                    keyboardType =
+                                        KeyboardType.Password,
+                                ),
+                            shape = RectangleShape,
+                            colors =
+                                androidx.compose.material3
+                                    .OutlinedTextFieldDefaults
+                                    .colors(
+                                        focusedTextColor =
+                                            text,
+                                        unfocusedTextColor =
+                                            text,
+                                        disabledTextColor =
+                                            text.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedContainerColor =
+                                            fieldFocus,
+                                        unfocusedContainerColor =
+                                            field,
+                                        disabledContainerColor =
+                                            field.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedBorderColor =
+                                            blue,
+                                        unfocusedBorderColor =
+                                            borderSoft,
+                                        disabledBorderColor =
+                                            borderSoft.copy(
+                                                alpha = 0.45f,
+                                            ),
+                                        cursorColor =
+                                            blue,
+                                        focusedPlaceholderColor =
+                                            muted,
+                                        unfocusedPlaceholderColor =
+                                            muted,
+                                        disabledPlaceholderColor =
+                                            muted.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                    ),
+                        )
+
+                        if (error != null) {
+                            Surface(
+                                modifier =
+                                    Modifier.fillMaxWidth(),
+                                color =
+                                    errorColor.copy(
+                                        alpha = 0.09f,
+                                    ),
+                                shape = RectangleShape,
+                                border =
+                                    androidx.compose.foundation
+                                        .BorderStroke(
+                                            width = 1.dp,
+                                            color =
+                                                errorColor.copy(
+                                                    alpha = 0.55f,
+                                                ),
+                                        ),
+                            ) {
+                                Text(
+                                    text = error,
+                                    modifier =
+                                        Modifier.padding(
+                                            horizontal = 14.dp,
+                                            vertical = 11.dp,
+                                        ),
+                                    color =
+                                        androidx.compose.ui.graphics
+                                            .Color(
+                                                0xFFFFB0B0,
+                                            ),
+                                    style =
+                                        MaterialTheme
+                                            .typography
+                                            .bodySmall,
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onLogin,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp),
+                            enabled = !loading,
+                            shape = RectangleShape,
+                            colors =
+                                androidx.compose.material3
+                                    .ButtonDefaults
+                                    .buttonColors(
+                                        containerColor =
+                                            blue,
+                                        contentColor =
+                                            androidx.compose.ui.graphics
+                                                .Color.White,
+                                        disabledContainerColor =
+                                            blue.copy(
+                                                alpha = 0.45f,
+                                            ),
+                                        disabledContentColor =
+                                            androidx.compose.ui.graphics
+                                                .Color.White
+                                                .copy(
+                                                    alpha = 0.65f,
+                                                ),
+                                    ),
+                        ) {
+                            if (loading) {
+                                CircularProgressIndicator(
+                                    modifier =
+                                        Modifier.size(
+                                            24.dp,
+                                        ),
+                                    color =
+                                        androidx.compose.ui.graphics
+                                            .Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = "Zaloguj",
+                                    fontWeight =
+                                        FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        TextButton(
+                            onClick =
+                                onForgotPassword,
+                            modifier =
+                                Modifier.align(
+                                    Alignment.CenterHorizontally,
+                                ),
+                            enabled = !loading,
+                            colors =
+                                androidx.compose.material3
+                                    .ButtonDefaults
+                                    .textButtonColors(
+                                        contentColor =
+                                            androidx.compose.ui.graphics
+                                                .Color(
+                                                    0xFF9BC4FF,
+                                                ),
+                                    ),
+                        ) {
+                            Text(
+                                text =
+                                    "Nie pamiętasz hasła?",
+                            )
+                        }
+
+                        if (fingerprintAvailable) {
+                            Button(
+                                onClick =
+                                    onFingerprintUnlock,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                enabled = !loading,
+                                shape = RectangleShape,
+                                border =
+                                    androidx.compose.foundation
+                                        .BorderStroke(
+                                            width = 1.dp,
+                                            color =
+                                                borderSoft,
+                                        ),
+                                colors =
+                                    androidx.compose.material3
+                                        .ButtonDefaults
+                                        .buttonColors(
+                                            containerColor =
+                                                androidx.compose.ui.graphics
+                                                    .Color.Transparent,
+                                            contentColor =
+                                                androidx.compose.ui.graphics
+                                                    .Color(
+                                                        0xFFB6C8E1,
+                                                    ),
+                                            disabledContainerColor =
+                                                androidx.compose.ui.graphics
+                                                    .Color.Transparent,
+                                            disabledContentColor =
+                                                muted.copy(
+                                                    alpha = 0.45f,
+                                                ),
+                                        ),
+                            ) {
+                                Text(
+                                    "Odblokuj odciskiem palca",
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
