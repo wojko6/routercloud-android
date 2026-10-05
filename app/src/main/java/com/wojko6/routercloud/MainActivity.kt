@@ -757,6 +757,14 @@ private fun RouterCloudApp(
                         )
                     }
                 },
+                onRunSync = { config ->
+                    withContext(Dispatchers.IO) {
+                        RouterCloudSyncEngine(
+                            context = context,
+                            client = client,
+                        ).sync(config)
+                    }
+                },
                 onBack = {
                     val parent = currentPath
                         .trim('/')
@@ -1338,6 +1346,9 @@ private fun FilesScreen(
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
     onFavoriteClick: (RouterCloudFavorite) -> Unit,
+    onRunSync:
+        suspend (RouterCloudSyncConfig) ->
+            RouterCloudSyncResult,
     onBack: () -> Unit,
     onLock: () -> Unit,
     onLogout: () -> Unit,
@@ -1349,6 +1360,101 @@ private fun FilesScreen(
 
     val context = LocalContext.current
     val pagerScope = rememberCoroutineScope()
+
+    val syncStore =
+        remember(context) {
+            RouterCloudSyncStore(context)
+        }
+
+    var syncConfig by remember(context) {
+        mutableStateOf(
+            syncStore.load(),
+        )
+    }
+
+    var syncLocalFileCount by remember {
+        mutableStateOf<Int?>(null)
+    }
+
+    var syncSetupBusy by remember {
+        mutableStateOf(false)
+    }
+
+    var syncSetupError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var syncResultMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var showSyncDialog by remember {
+        mutableStateOf(false)
+    }
+
+    val syncFolderPicker =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+            contract =
+                androidx.activity.result.contract
+                    .ActivityResultContracts
+                    .OpenDocumentTree(),
+        ) { uri ->
+            if (uri != null) {
+                syncSetupError = null
+                syncResultMessage = null
+
+                val permissionResult =
+                    runCatching {
+                        context.contentResolver
+                            .takePersistableUriPermission(
+                                uri,
+                                android.content.Intent
+                                    .FLAG_GRANT_READ_URI_PERMISSION,
+                            )
+                    }
+
+                if (permissionResult.isFailure) {
+                    syncSetupError =
+                        "Nie udało się zachować dostępu do folderu."
+                    showSyncDialog = true
+                } else {
+                    syncSetupBusy = true
+
+                    pagerScope.launch {
+                        try {
+                            val fileCount =
+                                withContext(Dispatchers.IO) {
+                                    RouterCloudLocalTreeScanner(
+                                        context,
+                                    )
+                                        .scan(uri)
+                                        .count {
+                                            !it.isDirectory
+                                        }
+                                }
+
+                            syncStore.save(uri)
+
+                            syncConfig =
+                                syncStore.load()
+
+                            syncLocalFileCount =
+                                fileCount
+
+                            syncSetupError = null
+                            showSyncDialog = true
+                        } catch (e: Exception) {
+                            syncSetupError =
+                                e.message
+                                    ?: "Nie udało się odczytać folderu."
+                            showSyncDialog = true
+                        } finally {
+                            syncSetupBusy = false
+                        }
+                    }
+                }
+            }
+        }
 
     val favoriteStore =
         remember(context) {
@@ -1841,11 +1947,245 @@ private fun FilesScreen(
                 }
             },
             onAdd = onUpload,
+            onSync = {
+                syncSetupError = null
+                showSyncDialog = true
+            },
             busy = busy,
             onLock = onLock,
             onLogout = onLogout,
         )
+
+        if (showSyncDialog) {
+            RouterCloudSyncSetupDialog(
+                config = syncConfig,
+                localFileCount =
+                    syncLocalFileCount,
+                busy = syncSetupBusy,
+                error = syncSetupError,
+                resultMessage =
+                    syncResultMessage,
+                onChooseFolder = {
+                    syncFolderPicker.launch(null)
+                },
+                onSyncNow = {
+                    val config = syncConfig
+
+                    if (
+                        config != null &&
+                        !syncSetupBusy
+                    ) {
+                        syncSetupBusy = true
+                        syncSetupError = null
+                        syncResultMessage = null
+
+                        pagerScope.launch {
+                            try {
+                                val result =
+                                    onRunSync(config)
+
+                                syncStore
+                                    .markSuccessfulSync()
+
+                                syncConfig =
+                                    syncStore.load()
+
+                                syncLocalFileCount =
+                                    result.scannedFiles
+
+                                syncResultMessage =
+                                    "Gotowe: wysłano " +
+                                        "${result.uploadedFiles}, " +
+                                        "pominięto " +
+                                        "${result.skippedFiles}, " +
+                                        "plików razem " +
+                                        "${result.scannedFiles}."
+                            } catch (e: Exception) {
+                                syncSetupError =
+                                    e.message
+                                        ?: "Synchronizacja nie powiodła się."
+                            } finally {
+                                syncSetupBusy = false
+                            }
+                        }
+                    }
+                },
+                onDismiss = {
+                    if (!syncSetupBusy) {
+                        showSyncDialog = false
+                    }
+                },
+            )
+        }
     }
+}
+
+@Composable
+private fun RouterCloudSyncSetupDialog(
+    config: RouterCloudSyncConfig?,
+    localFileCount: Int?,
+    busy: Boolean,
+    error: String?,
+    resultMessage: String?,
+    onChooseFolder: () -> Unit,
+    onSyncNow: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val localFolder =
+        config?.let {
+            runCatching {
+                val uri =
+                    android.net.Uri.parse(
+                        it.localTreeUri,
+                    )
+
+                android.provider.DocumentsContract
+                    .getTreeDocumentId(uri)
+                    .substringAfterLast(':')
+                    .ifBlank {
+                        "Wybrany folder"
+                    }
+            }.getOrDefault(
+                "Wybrany folder",
+            )
+        }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!busy) {
+                onDismiss()
+            }
+        },
+        title = {
+            Text("Synchronizacja")
+        },
+        text = {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text =
+                        "Telefon → RouterCloud",
+                    style =
+                        MaterialTheme.typography
+                            .titleSmall,
+                    fontWeight =
+                        FontWeight.Medium,
+                )
+
+                if (config == null) {
+                    Text(
+                        text =
+                            "Wybierz folder z telefonu, który ma być synchronizowany.",
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        text =
+                            "Folder telefonu: $localFolder",
+                    )
+
+                    Text(
+                        text =
+                            "Folder RouterCloud: /${config.remotePath}",
+                    )
+
+                    if (localFileCount != null) {
+                        Text(
+                            text =
+                                "$localFileCount plików gotowych do synchronizacji.",
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text =
+                                "Folder został zapisany.",
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (busy) {
+                    Text(
+                        text =
+                            "Sprawdzanie folderu…",
+                        color =
+                            MaterialTheme.colorScheme
+                                .primary,
+                    )
+                }
+
+                if (error != null) {
+                    Text(
+                        text = error,
+                        color =
+                            MaterialTheme.colorScheme
+                                .error,
+                    )
+                }
+
+                if (resultMessage != null) {
+                    Text(
+                        text = resultMessage,
+                        color =
+                            MaterialTheme.colorScheme
+                                .primary,
+                    )
+                }
+
+                Text(
+                    text =
+                        "Synchronizacja działa jednokierunkowo: Telefon → RouterCloud. Usuwanie plików nie jest synchronizowane.",
+                    style =
+                        MaterialTheme.typography
+                            .bodySmall,
+                    color =
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Row {
+                if (config != null) {
+                    TextButton(
+                        onClick = onSyncNow,
+                        enabled = !busy,
+                    ) {
+                        Text("Synchronizuj teraz")
+                    }
+                }
+
+                TextButton(
+                    onClick = onChooseFolder,
+                    enabled = !busy,
+                ) {
+                    Text(
+                        if (config == null) {
+                            "Wybierz folder"
+                        } else {
+                            "Zmień folder"
+                        },
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !busy,
+            ) {
+                Text("Zamknij")
+            }
+        },
+    )
 }
 
 @Composable
@@ -1856,6 +2196,7 @@ private fun RouterCloudBottomBar(
     onFiles: () -> Unit,
     onFavorites: () -> Unit,
     onAdd: () -> Unit,
+    onSync: () -> Unit,
     busy: Boolean,
     onLock: () -> Unit,
     onLogout: () -> Unit,
@@ -1927,6 +2268,17 @@ private fun RouterCloudBottomBar(
                         moreMenuExpanded = false
                     },
                 ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text("Synchronizacja")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            moreMenuExpanded = false
+                            onSync()
+                        },
+                    )
+
                     DropdownMenuItem(
                         text = {
                             Text("Zablokuj")
