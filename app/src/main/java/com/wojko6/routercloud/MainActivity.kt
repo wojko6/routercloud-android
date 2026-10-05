@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -2036,6 +2037,37 @@ private fun MetroTileDashboard(
         >(null)
     }
 
+    /*
+     * Stable drag-start geometry used for folder targeting.
+     */
+    var dragStartBounds by remember {
+        mutableStateOf<
+            Map<String, Rect>?
+        >(null)
+    }
+
+    var dragRequestedPosition by remember {
+        mutableStateOf<
+            MetroTilePosition?
+        >(null)
+    }
+
+    var folderHoverTargetId by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var armedFolderTargetId by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var folderHoverGeneration by remember {
+        mutableStateOf(0)
+    }
+
+    val folderHoverScope =
+        rememberCoroutineScope()
+
+
     val gridUnits =
         if (showMoreTiles) {
             8
@@ -2525,6 +2557,376 @@ private fun MetroTileDashboard(
     }
 
 
+    fun tryCommitMetroFolderDrop(
+        sourceTileId: String,
+        targetTileId: String,
+    ): Boolean {
+        if (
+            sourceTileId !in knownLeafTileIds ||
+            sourceTileId == targetTileId
+        ) {
+            return false
+        }
+
+        val basePositions =
+            dragStartPositions
+                ?: return false
+
+        val targetPosition =
+            basePositions[targetTileId]
+                ?: return false
+
+        val targetSize =
+            currentTileSizes[targetTileId]
+                ?: return false
+
+        val currentState =
+            MetroTileFolderDashboardState(
+                folders = metroTileFolders,
+                topLevelTileIds =
+                    restoreMetroTileOrder(
+                        savedOrder = tileOrder,
+                        legalTopLevelTileIds =
+                            legalTopLevelTileIds,
+                    ),
+            )
+
+        val existingTargetFolder =
+            metroTileFolders.firstOrNull {
+                it.id == targetTileId
+            }
+
+        val newFolderId =
+            if (
+                existingTargetFolder == null &&
+                targetTileId in knownLeafTileIds
+            ) {
+                "folder-" +
+                    java.util.UUID
+                        .randomUUID()
+                        .toString()
+            } else {
+                null
+            }
+
+        val candidateState =
+            when {
+                existingTargetFolder != null ->
+                    addLeafToMetroTileFolder(
+                        state = currentState,
+                        sourceTileId =
+                            sourceTileId,
+                        targetFolderId =
+                            targetTileId,
+                        availableLeafTileIds =
+                            knownLeafTileIds.toSet(),
+                    )
+
+                newFolderId != null ->
+                    createMetroTileFolder(
+                        state = currentState,
+                        sourceTileId =
+                            sourceTileId,
+                        targetTileId =
+                            targetTileId,
+                        folderId =
+                            newFolderId,
+                        folderName = "Folder",
+                        availableLeafTileIds =
+                            knownLeafTileIds.toSet(),
+                    )
+
+                else ->
+                    null
+            }
+                ?: return false
+
+        /*
+         * New folder inherits target tile geometry.
+         * Existing folder keeps its current geometry.
+         */
+        val candidateSizes =
+            buildMap {
+                candidateState
+                    .topLevelTileIds
+                    .forEach { candidateId ->
+                        val size =
+                            if (
+                                newFolderId != null &&
+                                candidateId ==
+                                    newFolderId
+                            ) {
+                                targetSize
+                            } else {
+                                currentTileSizes[
+                                    candidateId
+                                ]
+                            }
+                                ?: return false
+
+                        put(
+                            candidateId,
+                            size,
+                        )
+                    }
+            }
+
+        val candidatePositions =
+            buildMap {
+                candidateState
+                    .topLevelTileIds
+                    .forEach { candidateId ->
+                        val position =
+                            if (
+                                newFolderId != null &&
+                                candidateId ==
+                                    newFolderId
+                            ) {
+                                targetPosition
+                            } else {
+                                basePositions[
+                                    candidateId
+                                ]
+                            }
+                                ?: return false
+
+                        put(
+                            candidateId,
+                            position,
+                        )
+                    }
+            }
+
+        if (
+            !validateMetroTileLayout(
+                positions =
+                    candidatePositions,
+                sizes =
+                    candidateSizes,
+                tileIds =
+                    candidateState
+                        .topLevelTileIds,
+                gridUnits = gridUnits,
+                workspaceRows =
+                    METRO_WORKSPACE_ROWS,
+            )
+        ) {
+            return false
+        }
+
+        if (
+            !savePersistedMetroTileFolders(
+                store = folderStore,
+                folders =
+                    candidateState.folders,
+                availableLeafTileIds =
+                    knownLeafTileIds.toSet(),
+            )
+        ) {
+            return false
+        }
+
+        saveMetroTileOrder(
+            context = context,
+            order =
+                candidateState
+                    .topLevelTileIds,
+        )
+
+        saveMetroTilePositions(
+            context = context,
+            gridUnits = gridUnits,
+            positions =
+                candidatePositions,
+        )
+
+        if (newFolderId != null) {
+            saveMetroTileSize(
+                context,
+                newFolderId,
+                gridUnits,
+                targetSize,
+            )
+        }
+
+        metroTileFolders =
+            candidateState.folders
+
+        tileOrder =
+            candidateState
+                .topLevelTileIds
+
+        tilePositions =
+            candidatePositions
+
+        if (newFolderId != null) {
+            folderSizes =
+                folderSizes +
+                    (
+                        newFolderId to
+                            targetSize
+                    )
+        }
+
+        selectedTile = null
+        onEditModeChange(false)
+
+        return true
+    }
+
+
+    fun tryDissolveMetroTileFolder(
+        folderId: String,
+    ): Boolean {
+        val folder =
+            metroTileFolders.firstOrNull {
+                it.id == folderId
+            }
+                ?: return false
+
+        val currentTopLevelOrder =
+            restoreMetroTileOrder(
+                savedOrder = tileOrder,
+                legalTopLevelTileIds =
+                    legalTopLevelTileIds,
+            )
+
+        val currentFolderState =
+            MetroTileFolderDashboardState(
+                folders = metroTileFolders,
+                topLevelTileIds =
+                    currentTopLevelOrder,
+            )
+
+        val candidateState =
+            dissolveMetroTileFolder(
+                state = currentFolderState,
+                folderId = folder.id,
+                availableLeafTileIds =
+                    knownLeafTileIds.toSet(),
+            )
+                ?: return false
+
+        /*
+         * Leaf sizes remain untouched.
+         *
+         * The dissolved folder disappears from the size map,
+         * while its children reuse their already persisted
+         * grid-specific sizes.
+         */
+        val candidateSizes =
+            mutableMapOf<
+                String,
+                MetroTileSize
+            >()
+
+        for (
+            tileId in
+            candidateState.topLevelTileIds
+        ) {
+            val tileSize =
+                currentTileSizes[tileId]
+                    ?: return false
+
+            candidateSizes[tileId] =
+                tileSize
+        }
+
+        /*
+         * Compute the complete replacement layout before
+         * changing either Compose state or persistence.
+         *
+         * A null result means that the children cannot fit
+         * in the bounded workspace. In that case dissolve is
+         * rejected with zero mutation.
+         */
+        val candidatePositions =
+            buildBoundedMetroTilePositions(
+                order =
+                    candidateState.topLevelTileIds,
+                sizes = candidateSizes,
+                gridUnits = gridUnits,
+                workspaceRows =
+                    METRO_WORKSPACE_ROWS,
+            )
+                ?: return false
+
+        val candidateLayoutIsValid =
+            validateMetroTileLayout(
+                positions =
+                    candidatePositions,
+                sizes =
+                    candidateSizes,
+                tileIds =
+                    candidateState.topLevelTileIds,
+                gridUnits = gridUnits,
+                workspaceRows =
+                    METRO_WORKSPACE_ROWS,
+            )
+
+        if (!candidateLayoutIsValid) {
+            return false
+        }
+
+        /*
+         * Persistence is updated only after the complete
+         * candidate folder state and layout are valid.
+         */
+        val foldersSaved =
+            savePersistedMetroTileFolders(
+                store = folderStore,
+                folders =
+                    candidateState.folders,
+                availableLeafTileIds =
+                    knownLeafTileIds.toSet(),
+            )
+
+        if (!foldersSaved) {
+            return false
+        }
+
+        saveMetroTileOrder(
+            context = context,
+            order =
+                candidateState.topLevelTileIds,
+        )
+
+        saveMetroTilePositions(
+            context = context,
+            gridUnits = gridUnits,
+            positions =
+                candidatePositions,
+        )
+
+        /*
+         * Commit in-memory state last.
+         */
+        metroTileFolders =
+            candidateState.folders
+
+        tileOrder =
+            candidateState.topLevelTileIds
+
+        tilePositions =
+            candidatePositions
+
+        folderSizes =
+            folderSizes.filterKeys {
+                it != folderId
+            }
+
+        tileBounds.remove(folderId)
+
+        openFolderId = null
+        selectedTile = null
+
+        onEditModeChange(false)
+
+        return true
+    }
+
+
+
     val dashboardInteractionSource =
         remember {
             MutableInteractionSource()
@@ -2660,6 +3062,21 @@ private fun MetroTileDashboard(
 
                                 dragStartPositions =
                                     tilePositions
+
+                                dragStartBounds =
+                                    tileBounds.toMap()
+
+                                dragRequestedPosition =
+                                    null
+
+                                folderHoverGeneration +=
+                                    1
+
+                                folderHoverTargetId =
+                                    null
+
+                                armedFolderTargetId =
+                                    null
                             }
                         },
                         onDrag = { amount ->
@@ -2749,15 +3166,217 @@ private fun MetroTileDashboard(
                                     dragStartPositions
                                         ?: tilePositions
 
-                                val resolved =
-                                    resolveMetroTileLayoutChange(
-                                        tileId = tileId,
-                                        requestedPosition =
-                                            candidate,
-                                        requestedSize =
-                                            tileSize,
+                                dragRequestedPosition =
+                                    candidate
+
+                                /*
+                                 * Folder intent:
+                                 * source must be a leaf tile.
+                                 *
+                                 * The pointer must remain inside
+                                 * the central 60% of another
+                                 * top-level tile.
+                                 *
+                                 * We deliberately use geometry
+                                 * captured at drag start so normal
+                                 * reflow cannot move the target
+                                 * away from the pointer.
+                                 */
+                                val stableBounds =
+                                    dragStartBounds
+
+                                val hoverTargetId =
+                                    if (
+                                        tileId in
+                                            availableLeafTileIds &&
+                                        stableBounds != null
+                                    ) {
+                                        visibleOrder
+                                            .firstOrNull {
+                                                    targetId,
+                                                ->
+
+                                                if (
+                                                    targetId ==
+                                                        tileId
+                                                ) {
+                                                    false
+                                                } else {
+                                                    val bounds =
+                                                        stableBounds[
+                                                            targetId
+                                                        ]
+
+                                                    bounds != null &&
+                                                        next.x >=
+                                                            bounds.left +
+                                                                bounds.width *
+                                                                    0.20f &&
+                                                        next.x <=
+                                                            bounds.right -
+                                                                bounds.width *
+                                                                    0.20f &&
+                                                        next.y >=
+                                                            bounds.top +
+                                                                bounds.height *
+                                                                    0.20f &&
+                                                        next.y <=
+                                                            bounds.bottom -
+                                                                bounds.height *
+                                                                    0.20f
+                                                }
+                                            }
+                                    } else {
+                                        null
+                                    }
+
+                                if (
+                                    hoverTargetId !=
+                                        folderHoverTargetId
+                                ) {
+                                    folderHoverGeneration +=
+                                        1
+
+                                    val generation =
+                                        folderHoverGeneration
+
+                                    folderHoverTargetId =
+                                        hoverTargetId
+
+                                    armedFolderTargetId =
+                                        null
+
+                                    if (
+                                        hoverTargetId != null
+                                    ) {
+                                        folderHoverScope.launch {
+                                            kotlinx.coroutines.delay(
+                                                650L,
+                                            )
+
+                                            if (
+                                                folderHoverGeneration ==
+                                                    generation &&
+                                                folderHoverTargetId ==
+                                                    hoverTargetId &&
+                                                draggingTile ==
+                                                    tileId
+                                            ) {
+                                                armedFolderTargetId =
+                                                    hoverTargetId
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (
+                                    hoverTargetId != null
+                                ) {
+                                    /*
+                                     * Freeze reflow while folder
+                                     * intent is being evaluated.
+                                     */
+                                    tilePositions =
+                                        basePositions
+                                } else {
+                                    val resolved =
+                                        resolveMetroTileLayoutChange(
+                                            tileId =
+                                                tileId,
+                                            requestedPosition =
+                                                candidate,
+                                            requestedSize =
+                                                tileSize,
+                                            positions =
+                                                basePositions,
+                                            sizes =
+                                                currentTileSizes,
+                                            tileIds =
+                                                visibleOrder,
+                                            gridUnits =
+                                                gridUnits,
+                                            workspaceRows =
+                                                METRO_WORKSPACE_ROWS,
+                                        )
+
+                                    if (resolved != null) {
+                                        tilePositions =
+                                            resolved.positions
+                                    }
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            val folderCommitted =
+                                armedFolderTargetId
+                                    ?.let { targetId ->
+                                        tryCommitMetroFolderDrop(
+                                            sourceTileId =
+                                                tileId,
+                                            targetTileId =
+                                                targetId,
+                                        )
+                                    }
+                                    ?: false
+
+                            if (!folderCommitted) {
+                                /*
+                                 * F01:
+                                 * release before 650 ms means
+                                 * normal drag, not folder create.
+                                 */
+                                if (
+                                    folderHoverTargetId !=
+                                        null
+                                ) {
+                                    val requested =
+                                        dragRequestedPosition
+
+                                    val basePositions =
+                                        dragStartPositions
+
+                                    val tileSize =
+                                        currentTileSizes[
+                                            tileId
+                                        ]
+
+                                    if (
+                                        requested != null &&
+                                        basePositions !=
+                                            null &&
+                                        tileSize != null
+                                    ) {
+                                        val resolved =
+                                            resolveMetroTileLayoutChange(
+                                                tileId =
+                                                    tileId,
+                                                requestedPosition =
+                                                    requested,
+                                                requestedSize =
+                                                    tileSize,
+                                                positions =
+                                                    basePositions,
+                                                sizes =
+                                                    currentTileSizes,
+                                                tileIds =
+                                                    visibleOrder,
+                                                gridUnits =
+                                                    gridUnits,
+                                                workspaceRows =
+                                                    METRO_WORKSPACE_ROWS,
+                                            )
+
+                                        if (resolved != null) {
+                                            tilePositions =
+                                                resolved.positions
+                                        }
+                                    }
+                                }
+
+                                val finalLayoutIsValid =
+                                    validateMetroTileLayout(
                                         positions =
-                                            basePositions,
+                                            tilePositions,
                                         sizes =
                                             currentTileSizes,
                                         tileIds =
@@ -2768,56 +3387,61 @@ private fun MetroTileDashboard(
                                             METRO_WORKSPACE_ROWS,
                                     )
 
-                                if (resolved != null) {
-                                    tilePositions =
-                                        resolved.positions
-                                }
-                            }
-                        },
-                        onDragEnd = {
-                            val finalLayoutIsValid =
-                                validateMetroTileLayout(
-                                    positions =
-                                        tilePositions,
-                                    sizes =
-                                        currentTileSizes,
-                                    tileIds =
-                                        visibleOrder,
-                                    gridUnits =
+                                if (finalLayoutIsValid) {
+                                    saveMetroTilePositions(
+                                        context,
                                         gridUnits,
-                                    workspaceRows =
-                                        METRO_WORKSPACE_ROWS,
-                                )
-
-                            if (finalLayoutIsValid) {
-                                saveMetroTilePositions(
-                                    context,
-                                    gridUnits,
-                                    tilePositions,
-                                )
-                            } else {
-                                /*
-                                 * Defensive fallback.
-                                 *
-                                 * The new resolver should never
-                                 * produce an invalid candidate,
-                                 * but persistence must never
-                                 * accept one even if another UI
-                                 * regression appears later.
-                                 */
-                                dragStartPositions?.let {
-                                    tilePositions = it
+                                        tilePositions,
+                                    )
+                                } else {
+                                    dragStartPositions
+                                        ?.let {
+                                            tilePositions =
+                                                it
+                                        }
                                 }
                             }
+
+                            folderHoverGeneration +=
+                                1
+
+                            folderHoverTargetId =
+                                null
+
+                            armedFolderTargetId =
+                                null
+
+                            dragRequestedPosition =
+                                null
+
+                            dragStartBounds =
+                                null
 
                             draggingTile = null
                             dragPosition = null
                             dragStartPositions = null
                         },
                         onDragCancel = {
-                            dragStartPositions?.let {
-                                tilePositions = it
-                            }
+                            dragStartPositions
+                                ?.let {
+                                    tilePositions =
+                                        it
+                                }
+
+                            folderHoverGeneration +=
+                                1
+
+                            folderHoverTargetId =
+                                null
+
+                            armedFolderTargetId =
+                                null
+
+                            dragRequestedPosition =
+                                null
+
+                            dragStartBounds =
+                                null
 
                             draggingTile = null
                             dragPosition = null
@@ -3179,6 +3803,17 @@ private fun MetroTileDashboard(
                             }
 
                             TextButton(
+                                enabled = !busy,
+                                onClick = {
+                                    tryDissolveMetroTileFolder(
+                                        folder.id,
+                                    )
+                                },
+                            ) {
+                                Text("Rozwiąż folder")
+                            }
+
+                            TextButton(
                                 onClick = {
                                     openFolderId = null
                                 },
@@ -3319,26 +3954,33 @@ private fun ReorderableMetroTile(
                     newBounds
             }
             .pointerInput(
-                editMode,
                 tileId,
             ) {
-                if (editMode) {
-                    detectDragGestures(
-                        onDragStart = {
-                            currentOnDragStart()
-                        },
-                        onDragEnd = {
-                            currentOnDragEnd()
-                        },
-                        onDragCancel = {
-                            currentOnDragCancel()
-                        },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            currentOnDrag(amount)
-                        },
-                    )
-                }
+                /*
+                 * Windows-style continuous interaction:
+                 *
+                 * hold -> activate -> move the same finger.
+                 *
+                 * Do not key this pointerInput with editMode.
+                 * onDragStart enters edit mode and a restart of
+                 * the gesture coroutine here would cancel the
+                 * very gesture that activated it.
+                 */
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        currentOnDragStart()
+                    },
+                    onDragEnd = {
+                        currentOnDragEnd()
+                    },
+                    onDragCancel = {
+                        currentOnDragCancel()
+                    },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        currentOnDrag(amount)
+                    },
+                )
             },
     ) {
         Box(
@@ -3511,7 +4153,7 @@ private fun MetroActionTile(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .combinedClickable(
+                .clickable(
                     onClick = {
                         if (editMode) {
                             onEditClick()
@@ -3519,7 +4161,6 @@ private fun MetroActionTile(
                             onClick()
                         }
                     },
-                    onLongClick = onLongClick,
                 ),
             shape = RectangleShape,
             color =

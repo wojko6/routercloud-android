@@ -289,6 +289,72 @@ internal fun addLeafToMetroTileFolder(
 }
 
 
+internal fun dissolveMetroTileFolder(
+    state: MetroTileFolderDashboardState,
+    folderId: String,
+    availableLeafTileIds: Set<String>,
+): MetroTileFolderDashboardState? {
+    if (
+        !validateMetroTileFolderDashboardState(
+            state = state,
+            availableLeafTileIds =
+                availableLeafTileIds,
+        )
+    ) {
+        return null
+    }
+
+    val folder =
+        state.folders
+            .firstOrNull {
+                it.id == folderId
+            }
+            ?: return null
+
+    if (folderId !in state.topLevelTileIds) {
+        return null
+    }
+
+    /*
+     * Restore the children exactly where the folder existed
+     * in the deterministic top-level order.
+     *
+     * Child ordering is preserved from the folder model.
+     */
+    val newTopLevelTileIds =
+        buildList {
+            state.topLevelTileIds.forEach {
+                    tileId,
+                ->
+
+                if (tileId == folderId) {
+                    addAll(folder.childTileIds)
+                } else {
+                    add(tileId)
+                }
+            }
+        }
+
+    val result =
+        MetroTileFolderDashboardState(
+            folders =
+                state.folders.filterNot {
+                    it.id == folderId
+                },
+            topLevelTileIds =
+                newTopLevelTileIds,
+        )
+
+    return result.takeIf {
+        validateMetroTileFolderDashboardState(
+            state = it,
+            availableLeafTileIds =
+                availableLeafTileIds,
+        )
+    }
+}
+
+
 internal fun resolveMetroTileTopLevelIds(
     availableLeafTileIds: List<String>,
     folders: Collection<MetroTileFolder>,
