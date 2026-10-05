@@ -1887,6 +1887,11 @@ private fun MetroTileDashboard(
         mutableStateOf<String?>(null)
     }
 
+    var openFolderId by remember {
+        mutableStateOf<String?>(null)
+    }
+
+
     LaunchedEffect(editMode) {
         if (!editMode) {
             selectedTile = null
@@ -2799,7 +2804,10 @@ private fun MetroTileDashboard(
                                                 .getValue(
                                                     tileId,
                                                 ),
-                                        onClick = {},
+                                        onClick = {
+                                            openFolderId =
+                                                folder.id
+                                        },
                                         onLongClick = {
                                             selectedTile = tileId
                                             onEditModeChange(true)
@@ -2937,6 +2945,107 @@ private fun MetroTileDashboard(
                                     modifier =
                                         Modifier.fillMaxSize(),
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    openFolderId?.let { folderId ->
+        val folder =
+            metroTileFolders.firstOrNull {
+                it.id == folderId
+            }
+
+        if (folder == null) {
+            openFolderId = null
+        } else {
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.material3.Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        tonalElevation = 8.dp,
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                        ) {
+                            Text(
+                                text = folder.name,
+                                style =
+                                    MaterialTheme.typography.titleLarge,
+                            )
+
+                            folder.childTileIds.forEach {
+                                    childTileId ->
+
+                                val childLabel =
+                                    when (childTileId) {
+                                        METRO_TILE_UPLOAD ->
+                                            "Wyślij plik"
+
+                                        METRO_TILE_DIRECTORY ->
+                                            "Katalog"
+
+                                        METRO_TILE_STORAGE ->
+                                            "Pamięć"
+
+                                        else ->
+                                            childTileId
+                                    }
+
+                                val childEnabled =
+                                    when (childTileId) {
+                                        METRO_TILE_UPLOAD,
+                                        METRO_TILE_DIRECTORY,
+                                        ->
+                                            allowUpload && !busy
+
+                                        METRO_TILE_STORAGE ->
+                                            storage != null
+
+                                        else ->
+                                            false
+                                    }
+
+                                TextButton(
+                                    enabled = childEnabled,
+                                    onClick = {
+                                        when (childTileId) {
+                                            METRO_TILE_UPLOAD -> {
+                                                openFolderId = null
+                                                onUpload()
+                                            }
+
+                                            METRO_TILE_DIRECTORY -> {
+                                                openFolderId = null
+                                                onCreateDirectory()
+                                            }
+
+                                            METRO_TILE_STORAGE -> Unit
+                                        }
+                                    },
+                                ) {
+                                    Text(childLabel)
+                                }
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    openFolderId = null
+                                },
+                            ) {
+                                Text("Zamknij")
                             }
                         }
                     }
