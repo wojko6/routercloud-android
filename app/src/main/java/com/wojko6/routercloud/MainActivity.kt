@@ -2737,6 +2737,10 @@ private fun MetroTileDashboard(
                                         selectedTile = tileId
                                         onEditModeChange(true)
                                     },
+                                    editMode = editMode,
+                                    onEditClick = {
+                                        selectedTile = tileId
+                                    },
                                     showResizeControl =
                                         editMode &&
                                             selectedTile == tileId &&
@@ -2765,6 +2769,10 @@ private fun MetroTileDashboard(
                                         selectedTile = tileId
                                         onEditModeChange(true)
                                     },
+                                    editMode = editMode,
+                                    onEditClick = {
+                                        selectedTile = tileId
+                                    },
                                     showResizeControl =
                                         editMode &&
                                             selectedTile == tileId &&
@@ -2788,6 +2796,10 @@ private fun MetroTileDashboard(
                                         onLongClick = {
                                             selectedTile = tileId
                                             onEditModeChange(true)
+                                        },
+                                        editMode = editMode,
+                                        onEditClick = {
+                                            selectedTile = tileId
                                         },
                                         showResizeControl =
                                             editMode &&
@@ -2832,6 +2844,10 @@ private fun MetroTileDashboard(
                                         onLongClick = {
                                             selectedTile = tileId
                                             onEditModeChange(true)
+                                        },
+                                        editMode = editMode,
+                                        onEditClick = {
+                                            selectedTile = tileId
                                         },
                                         showResizeControl =
                                             editMode &&
@@ -3383,6 +3399,8 @@ private fun MetroActionTile(
     onClick: () -> Unit,
     onSizeChange: (MetroTileSize) -> Unit,
     onLongClick: () -> Unit = {},
+    editMode: Boolean = false,
+    onEditClick: () -> Unit = {},
     showResizeControl: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -3394,7 +3412,9 @@ private fun MetroActionTile(
                 .fillMaxSize()
                 .combinedClickable(
                     onClick = {
-                        if (enabled) {
+                        if (editMode) {
+                            onEditClick()
+                        } else if (enabled) {
                             onClick()
                         }
                     },
@@ -3536,6 +3556,8 @@ private fun StorageTile(
     tileSize: MetroTileSize,
     onSizeChange: (MetroTileSize) -> Unit,
     onLongClick: () -> Unit = {},
+    editMode: Boolean = false,
+    onEditClick: () -> Unit = {},
     showResizeControl: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -3557,7 +3579,11 @@ private fun StorageTile(
             modifier = Modifier
                 .fillMaxSize()
                 .combinedClickable(
-                    onClick = {},
+                    onClick = {
+                        if (editMode) {
+                            onEditClick()
+                        }
+                    },
                     onLongClick = onLongClick,
                 ),
             tonalElevation = 0.dp,
