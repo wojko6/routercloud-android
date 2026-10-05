@@ -1833,12 +1833,44 @@ private fun MetroTileDashboard(
 
     val context = LocalContext.current
 
+    val knownLeafTileIds =
+        remember {
+            defaultMetroTileOrder()
+        }
+
+    val folderStore =
+        remember(context) {
+            SharedPreferencesMetroTileFolderPersistenceStore(
+                context.getSharedPreferences(
+                    METRO_TILE_PREFS,
+                    Context.MODE_PRIVATE,
+                ),
+            )
+        }
+
+    var metroTileFolders by remember(context) {
+        mutableStateOf(
+            loadPersistedMetroTileFolders(
+                store = folderStore,
+                availableLeafTileIds =
+                    knownLeafTileIds.toSet(),
+            ),
+        )
+    }
+
+    val legalTopLevelTileIds =
+        resolveMetroTileTopLevelIds(
+            availableLeafTileIds =
+                knownLeafTileIds,
+            folders = metroTileFolders,
+        )
+
     var tileOrder by remember(context) {
         mutableStateOf(
             loadMetroTileOrder(
                 context = context,
                 legalTopLevelTileIds =
-                    defaultMetroTileOrder(),
+                    legalTopLevelTileIds,
             ),
         )
     }
@@ -1884,6 +1916,24 @@ private fun MetroTileDashboard(
             6
         }
 
+    var folderSizes by remember(
+        context,
+        gridUnits,
+    ) {
+        mutableStateOf(
+            metroTileFolders.associate { folder ->
+                folder.id to
+                    loadMetroTileSize(
+                        context = context,
+                        tileId = folder.id,
+                        gridUnits = gridUnits,
+                        default =
+                            MetroTileSize.Medium,
+                    )
+            },
+        )
+    }
+
     var uploadSize by remember(
         context,
         gridUnits,
@@ -1927,36 +1977,65 @@ private fun MetroTileDashboard(
     }
 
     val currentTileSizes =
-        mapOf(
-            METRO_TILE_UPLOAD to uploadSize,
-            METRO_TILE_DIRECTORY to directorySize,
-            METRO_TILE_STORAGE to storageSize,
-        )
+        buildMap {
+            put(
+                METRO_TILE_UPLOAD,
+                uploadSize,
+            )
+
+            put(
+                METRO_TILE_DIRECTORY,
+                directorySize,
+            )
+
+            put(
+                METRO_TILE_STORAGE,
+                storageSize,
+            )
+
+            putAll(
+                folderSizes,
+            )
+        }
 
     val safeDefaultTileSizes =
-        mapOf(
-            METRO_TILE_UPLOAD to
+        buildMap {
+            put(
+                METRO_TILE_UPLOAD,
                 MetroTileSize.Medium,
-            METRO_TILE_DIRECTORY to
+            )
+
+            put(
+                METRO_TILE_DIRECTORY,
                 MetroTileSize.Medium,
-            METRO_TILE_STORAGE to
+            )
+
+            put(
+                METRO_TILE_STORAGE,
                 MetroTileSize.Wide,
-        )
+            )
+
+            metroTileFolders.forEach { folder ->
+                put(
+                    folder.id,
+                    MetroTileSize.Medium,
+                )
+            }
+        }
 
     var tilePositions by remember(
         context,
         gridUnits,
     ) {
         val tileIds =
-            defaultMetroTileOrder()
+            legalTopLevelTileIds
 
         val saved =
             loadMetroTilePositions(
                 context = context,
                 gridUnits = gridUnits,
                 allowedTileIds =
-                    defaultMetroTileOrder()
-                        .toSet(),
+                    legalTopLevelTileIds.toSet(),
             )
 
         val validSaved =
@@ -2013,7 +2092,7 @@ private fun MetroTileDashboard(
         gridUnits,
     ) {
         val tileIds =
-            defaultMetroTileOrder()
+            legalTopLevelTileIds
 
         val currentLayoutIsValid =
             validateMetroTileLayout(
@@ -2050,6 +2129,14 @@ private fun MetroTileDashboard(
                 safeDefaultTileSizes.getValue(
                     METRO_TILE_STORAGE,
                 )
+
+            folderSizes =
+                metroTileFolders.associate { folder ->
+                    folder.id to
+                        safeDefaultTileSizes.getValue(
+                            folder.id,
+                        )
+                }
 
             tilePositions =
                 safePositions
@@ -2100,7 +2187,7 @@ private fun MetroTileDashboard(
          * persisted positions, but they must not block the
          * currently visible layout.
          */
-        val activeTileIds =
+        val availableLeafTileIds =
             buildList {
                 if (allowUpload) {
                     add(METRO_TILE_UPLOAD)
@@ -2111,6 +2198,13 @@ private fun MetroTileDashboard(
                     add(METRO_TILE_STORAGE)
                 }
             }
+
+        val activeTileIds =
+            resolveMetroTileTopLevelIds(
+                availableLeafTileIds =
+                    availableLeafTileIds,
+                folders = metroTileFolders,
+            )
 
         if (tileId !in activeTileIds) {
             return
@@ -2271,6 +2365,19 @@ private fun MetroTileDashboard(
             METRO_TILE_STORAGE ->
                 storageSize =
                     resolved.sizes.getValue(tileId)
+
+            else -> {
+                if (tileId in folderSizes) {
+                    folderSizes =
+                        folderSizes +
+                            (
+                                tileId to
+                                    resolved.sizes.getValue(
+                                        tileId,
+                                    )
+                            )
+                }
+            }
         }
 
         tilePositions =
@@ -2339,8 +2446,8 @@ private fun MetroTileDashboard(
         val gridPitchPx =
             cellPx + gapPx
 
-        val availableTiles =
-            buildSet {
+        val availableLeafTileIds =
+            buildList {
                 if (allowUpload) {
                     add(METRO_TILE_UPLOAD)
                     add(METRO_TILE_DIRECTORY)
@@ -2350,6 +2457,13 @@ private fun MetroTileDashboard(
                     add(METRO_TILE_STORAGE)
                 }
             }
+
+        val availableTiles =
+            resolveMetroTileTopLevelIds(
+                availableLeafTileIds =
+                    availableLeafTileIds,
+                folders = metroTileFolders,
+            ).toSet()
 
         val visibleOrder =
             tileOrder.filter {
@@ -2368,19 +2482,9 @@ private fun MetroTileDashboard(
         MetroPositionedLayout(
             tileSizes =
                 visibleOrder.map { tileId ->
-                    when (tileId) {
-                        METRO_TILE_UPLOAD ->
-                            uploadSize
-
-                        METRO_TILE_DIRECTORY ->
-                            directorySize
-
-                        METRO_TILE_STORAGE ->
-                            storageSize
-
-                        else ->
-                            MetroTileSize.Small
-                    }
+                    currentTileSizes.getValue(
+                        tileId,
+                    )
                 },
             tilePositions =
                 visibleOrder.map { tileId ->
@@ -2398,31 +2502,13 @@ private fun MetroTileDashboard(
             visibleOrder.forEach { tileId ->
                 key(tileId) {
                     val tileModifier =
-                        when (tileId) {
-                            METRO_TILE_UPLOAD ->
-                                Modifier.metroTileDimensions(
-                                    uploadSize,
-                                    cellSize,
-                                    gap,
-                                )
-
-                            METRO_TILE_DIRECTORY ->
-                                Modifier.metroTileDimensions(
-                                    directorySize,
-                                    cellSize,
-                                    gap,
-                                )
-
-                            METRO_TILE_STORAGE ->
-                                Modifier.metroTileDimensions(
-                                    storageSize,
-                                    cellSize,
-                                    gap,
-                                )
-
-                            else ->
-                                Modifier
-                        }
+                        Modifier.metroTileDimensions(
+                            currentTileSizes.getValue(
+                                tileId,
+                            ),
+                            cellSize,
+                            gap,
+                        )
 
                     ReorderableMetroTile(
                         tileId = tileId,
@@ -2692,6 +2778,47 @@ private fun MetroTileDashboard(
                                     )
                                 }
                             }
+
+                            else -> {
+                                val folder =
+                                    metroTileFolders
+                                        .firstOrNull {
+                                            it.id == tileId
+                                        }
+
+                                if (folder != null) {
+                                    MetroActionTile(
+                                        icon =
+                                            MetroActionGlyphType.NewFolder,
+                                        label = folder.name,
+                                        enabled =
+                                            !busy &&
+                                                !editMode,
+                                        tileSize =
+                                            currentTileSizes
+                                                .getValue(
+                                                    tileId,
+                                                ),
+                                        onClick = {},
+                                        onLongClick = {
+                                            selectedTile = tileId
+                                            onEditModeChange(true)
+                                        },
+                                        showResizeControl =
+                                            editMode &&
+                                                selectedTile == tileId &&
+                                                draggingTile == null,
+                                        onSizeChange = { newSize ->
+                                            applyMetroTileSizeChange(
+                                                tileId,
+                                                newSize,
+                                            )
+                                        },
+                                        modifier =
+                                            Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2721,31 +2848,13 @@ private fun MetroTileDashboard(
 
             if (bounds != null) {
                 val previewModifier =
-                    when (activeTile) {
-                        METRO_TILE_UPLOAD ->
-                            Modifier.metroTileDimensions(
-                                uploadSize,
-                                cellSize,
-                                gap,
-                            )
-
-                        METRO_TILE_DIRECTORY ->
-                            Modifier.metroTileDimensions(
-                                directorySize,
-                                cellSize,
-                                gap,
-                            )
-
-                        METRO_TILE_STORAGE ->
-                            Modifier.metroTileDimensions(
-                                storageSize,
-                                cellSize,
-                                gap,
-                            )
-
-                        else ->
-                            Modifier
-                    }
+                    Modifier.metroTileDimensions(
+                        currentTileSizes.getValue(
+                            activeTile,
+                        ),
+                        cellSize,
+                        gap,
+                    )
 
                 Box(
                     modifier = previewModifier
@@ -2798,6 +2907,32 @@ private fun MetroTileDashboard(
                                 StorageTile(
                                     storage = it,
                                     tileSize = storageSize,
+                                    onSizeChange = {},
+                                    modifier =
+                                        Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+
+                        else -> {
+                            val folder =
+                                metroTileFolders
+                                    .firstOrNull {
+                                        it.id == activeTile
+                                    }
+
+                            if (folder != null) {
+                                MetroActionTile(
+                                    icon =
+                                        MetroActionGlyphType.NewFolder,
+                                    label = folder.name,
+                                    enabled = true,
+                                    tileSize =
+                                        currentTileSizes
+                                            .getValue(
+                                                activeTile,
+                                            ),
+                                    onClick = {},
                                     onSizeChange = {},
                                     modifier =
                                         Modifier.fillMaxSize(),
