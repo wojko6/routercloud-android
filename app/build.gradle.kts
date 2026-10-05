@@ -37,7 +37,9 @@ android {
 }
 
 dependencies {
-    implementation("androidx.biometric:biometric:1.1.0")
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.appcompat)
     implementation(libs.squareup.okhttp)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -48,7 +50,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
-    testImplementation("org.json:json:20250517")
+    testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
