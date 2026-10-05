@@ -1698,7 +1698,7 @@ private fun canPlaceMetroTile(
 }
 
 
-private fun buildBoundedMetroTilePositions(
+internal fun buildBoundedMetroTilePositions(
     order: List<String>,
     sizes: Map<String, MetroTileSize>,
     gridUnits: Int,
