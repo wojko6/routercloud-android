@@ -1150,9 +1150,8 @@ private fun defaultMetroTileOrder(): List<String> =
 
 private fun loadMetroTileOrder(
     context: Context,
+    legalTopLevelTileIds: List<String>,
 ): List<String> {
-    val defaults = defaultMetroTileOrder()
-
     val saved =
         context
             .getSharedPreferences(
@@ -1164,10 +1163,13 @@ private fun loadMetroTileOrder(
                 null,
             )
             ?.split(",")
-            ?.filter { it in defaults }
             .orEmpty()
 
-    return (saved + defaults).distinct()
+    return restoreMetroTileOrder(
+        savedOrder = saved,
+        legalTopLevelTileIds =
+            legalTopLevelTileIds,
+    )
 }
 
 
@@ -1264,6 +1266,7 @@ private fun metroTilePositionsPreferenceKey(
 private fun loadMetroTilePositions(
     context: Context,
     gridUnits: Int,
+    allowedTileIds: Set<String>,
 ): Map<String, MetroTilePosition>? {
     val raw =
         context
@@ -1278,9 +1281,6 @@ private fun loadMetroTilePositions(
                 null,
             )
             ?: return null
-
-    val allowed =
-        defaultMetroTileOrder().toSet()
 
     return raw
         .split(";")
@@ -1302,7 +1302,7 @@ private fun loadMetroTilePositions(
                 parts[2].toIntOrNull()
 
             if (
-                tileId !in allowed ||
+                tileId !in allowedTileIds ||
                 column == null ||
                 row == null
             ) {
@@ -1835,7 +1835,11 @@ private fun MetroTileDashboard(
 
     var tileOrder by remember(context) {
         mutableStateOf(
-            loadMetroTileOrder(context),
+            loadMetroTileOrder(
+                context = context,
+                legalTopLevelTileIds =
+                    defaultMetroTileOrder(),
+            ),
         )
     }
 
@@ -1948,8 +1952,11 @@ private fun MetroTileDashboard(
 
         val saved =
             loadMetroTilePositions(
-                context,
-                gridUnits,
+                context = context,
+                gridUnits = gridUnits,
+                allowedTileIds =
+                    defaultMetroTileOrder()
+                        .toSet(),
             )
 
         val validSaved =

@@ -431,4 +431,91 @@ class MetroTileFolderModelTest {
     }
 
 
+
+    @Test
+    fun folderChildren_areRemovedFromLegalTopLevelRegistry() {
+        val folders =
+            listOf(
+                MetroTileFolder(
+                    id = "folder_a",
+                    name = "Folder A",
+                    childTileIds =
+                        listOf(
+                            "upload",
+                            "directory",
+                        ),
+                ),
+            )
+
+        val result =
+            resolveMetroTileTopLevelIds(
+                availableLeafTileIds =
+                    listOf(
+                        "upload",
+                        "directory",
+                        "storage",
+                    ),
+                folders = folders,
+            )
+
+        assertEquals(
+            listOf(
+                "storage",
+                "folder_a",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun savedOrder_acceptsDynamicFolderId() {
+        val result =
+            restoreMetroTileOrder(
+                savedOrder =
+                    listOf(
+                        "folder_a",
+                        "storage",
+                    ),
+                legalTopLevelTileIds =
+                    listOf(
+                        "storage",
+                        "folder_a",
+                    ),
+            )
+
+        assertEquals(
+            listOf(
+                "folder_a",
+                "storage",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun savedOrder_ignoresUnknownIdsAndAppendsMissingLegalIds() {
+        val result =
+            restoreMetroTileOrder(
+                savedOrder =
+                    listOf(
+                        "unknown_tile",
+                        "folder_a",
+                    ),
+                legalTopLevelTileIds =
+                    listOf(
+                        "storage",
+                        "folder_a",
+                    ),
+            )
+
+        assertEquals(
+            listOf(
+                "folder_a",
+                "storage",
+            ),
+            result,
+        )
+    }
+
+
 }

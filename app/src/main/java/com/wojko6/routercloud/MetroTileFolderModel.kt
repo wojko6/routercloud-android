@@ -287,3 +287,55 @@ internal fun addLeafToMetroTileFolder(
         )
     }
 }
+
+
+internal fun resolveMetroTileTopLevelIds(
+    availableLeafTileIds: List<String>,
+    folders: Collection<MetroTileFolder>,
+): List<String> {
+    val assignedLeafTileIds =
+        folders
+            .flatMap {
+                it.childTileIds
+            }
+            .toSet()
+
+    val topLevelLeafTileIds =
+        availableLeafTileIds.filterNot {
+            it in assignedLeafTileIds
+        }
+
+    val folderIds =
+        folders.map {
+            it.id
+        }
+
+    return (
+        topLevelLeafTileIds +
+            folderIds
+    ).distinct()
+}
+
+
+internal fun restoreMetroTileOrder(
+    savedOrder: List<String>,
+    legalTopLevelTileIds: List<String>,
+): List<String> {
+    val legalIds =
+        legalTopLevelTileIds.toSet()
+
+    val restored =
+        savedOrder
+            .filter {
+                it in legalIds
+            }
+            .distinct()
+
+    val missing =
+        legalTopLevelTileIds
+            .filterNot {
+                it in restored
+            }
+
+    return restored + missing
+}
