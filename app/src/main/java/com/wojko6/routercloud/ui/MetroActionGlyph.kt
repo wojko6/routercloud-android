@@ -20,6 +20,7 @@ enum class MetroActionGlyphType {
     Recent,
     Home,
     Add,
+    Favorite,
     More,
 }
 
@@ -269,6 +270,70 @@ fun MetroActionGlyph(
                     end = Offset(w * 0.76f, h * 0.50f),
                     strokeWidth = lineWidth,
                     cap = StrokeCap.Butt,
+                )
+            }
+
+            MetroActionGlyphType.Favorite -> {
+                val w = size.width
+                val h = size.height
+
+                val star =
+                    androidx.compose.ui.graphics.Path().apply {
+                        moveTo(
+                            w * 0.50f,
+                            h * 0.10f,
+                        )
+                        lineTo(
+                            w * 0.61f,
+                            h * 0.38f,
+                        )
+                        lineTo(
+                            w * 0.91f,
+                            h * 0.40f,
+                        )
+                        lineTo(
+                            w * 0.68f,
+                            h * 0.59f,
+                        )
+                        lineTo(
+                            w * 0.76f,
+                            h * 0.88f,
+                        )
+                        lineTo(
+                            w * 0.50f,
+                            h * 0.72f,
+                        )
+                        lineTo(
+                            w * 0.24f,
+                            h * 0.88f,
+                        )
+                        lineTo(
+                            w * 0.32f,
+                            h * 0.59f,
+                        )
+                        lineTo(
+                            w * 0.09f,
+                            h * 0.40f,
+                        )
+                        lineTo(
+                            w * 0.39f,
+                            h * 0.38f,
+                        )
+                        close()
+                    }
+
+                drawPath(
+                    path = star,
+                    color = color,
+                    style =
+                        androidx.compose.ui.graphics.drawscope
+                            .Stroke(
+                                width =
+                                    2.2.dp.toPx(),
+                                join =
+                                    androidx.compose.ui.graphics
+                                        .StrokeJoin.Miter,
+                            ),
                 )
             }
 

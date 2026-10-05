@@ -468,9 +468,10 @@ private fun RouterCloudApp(
         }
     }
 
-    fun openTextPreview(entry: RouterCloudEntry) {
-        val path = remotePath(entry)
-
+    fun openTextPreviewAtPath(
+        entry: RouterCloudEntry,
+        path: String,
+    ) {
         scope.launch {
             loading = true
             error = null
@@ -486,11 +487,22 @@ private fun RouterCloudApp(
                     content = text,
                 )
             } catch (e: Exception) {
-                error = e.message ?: "Nie udało się otworzyć podglądu."
+                error =
+                    e.message
+                        ?: "Nie udało się otworzyć podglądu."
             } finally {
                 loading = false
             }
         }
+    }
+
+    fun openTextPreview(
+        entry: RouterCloudEntry,
+    ) {
+        openTextPreviewAtPath(
+            entry = entry,
+            path = remotePath(entry),
+        )
     }
 
     fun unlockWithFingerprint() {
@@ -725,6 +737,23 @@ private fun RouterCloudApp(
                         downloadAndOpen(
                             fileName = entry.name,
                             path = remotePath(entry),
+                        )
+                    }
+                },
+                onFavoriteClick = { favorite ->
+                    val entry = favorite.entry
+
+                    if (entry.isDirectory) {
+                        loadDirectory(favorite.path)
+                    } else if (supportsTextPreview(entry.name)) {
+                        openTextPreviewAtPath(
+                            entry = entry,
+                            path = favorite.path,
+                        )
+                    } else {
+                        downloadAndOpen(
+                            fileName = entry.name,
+                            path = favorite.path,
                         )
                     }
                 },
@@ -1308,6 +1337,7 @@ private fun FilesScreen(
     onDelete: (RouterCloudEntry) -> Unit,
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
+    onFavoriteClick: (RouterCloudFavorite) -> Unit,
     onBack: () -> Unit,
     onLock: () -> Unit,
     onLogout: () -> Unit,
@@ -1319,6 +1349,67 @@ private fun FilesScreen(
 
     val context = LocalContext.current
     val pagerScope = rememberCoroutineScope()
+
+    val favoriteStore =
+        remember(context) {
+            RouterCloudFavoriteStore(context)
+        }
+
+    var favorites by remember(context) {
+        mutableStateOf(
+            favoriteStore.load(),
+        )
+    }
+
+    fun favoritePath(
+        entry: RouterCloudEntry,
+    ): String =
+        listOf(
+            currentPath.trim('/'),
+            entry.name.trim('/'),
+        )
+            .filter { it.isNotEmpty() }
+            .joinToString("/")
+
+    fun toggleFavorite(
+        entry: RouterCloudEntry,
+    ) {
+        val path = favoritePath(entry)
+
+        val updated =
+            favorites
+                .filterNot {
+                    it.path == path
+                }
+                .toMutableList()
+
+        if (
+            favorites.none {
+                it.path == path
+            }
+        ) {
+            updated +=
+                RouterCloudFavorite(
+                    path = path,
+                    entry = entry,
+                )
+        }
+
+        favorites = updated
+        favoriteStore.save(updated)
+    }
+
+    fun removeFavorite(
+        favorite: RouterCloudFavorite,
+    ) {
+        val updated =
+            favorites.filterNot {
+                it.path == favorite.path
+            }
+
+        favorites = updated
+        favoriteStore.save(updated)
+    }
 
     var headerMenuExpanded by remember {
         mutableStateOf(false)
@@ -1333,7 +1424,7 @@ private fun FilesScreen(
                     0
                 },
             pageCount = {
-                2
+                3
             },
         )
 
@@ -1349,14 +1440,24 @@ private fun FilesScreen(
     }
 
     BackHandler(
-        enabled = pagerState.currentPage == 1,
+        enabled = pagerState.currentPage != 0,
     ) {
         if (!busy) {
-            if (currentPath.isNotEmpty()) {
-                onBack()
-            } else {
-                pagerScope.launch {
-                    pagerState.animateScrollToPage(0)
+            when (pagerState.currentPage) {
+                1 -> {
+                    if (currentPath.isNotEmpty()) {
+                        onBack()
+                    } else {
+                        pagerScope.launch {
+                            pagerState.animateScrollToPage(0)
+                        }
+                    }
+                }
+
+                2 -> {
+                    pagerScope.launch {
+                        pagerState.animateScrollToPage(0)
+                    }
                 }
             }
         }
@@ -1394,10 +1495,15 @@ private fun FilesScreen(
 
                 Text(
                     text =
-                        if (pagerState.currentPage == 0) {
-                            "Twój prywatny dysk w sieci domowej"
-                        } else {
-                            "${directory.entries.size} elementów na dysku"
+                        when (pagerState.currentPage) {
+                            0 ->
+                                "Twój prywatny dysk w sieci domowej"
+
+                            1 ->
+                                "${directory.entries.size} elementów na dysku"
+
+                            else ->
+                                "${favorites.size} ulubionych"
                         },
                     style =
                         MaterialTheme.typography.bodyMedium,
@@ -1578,6 +1684,14 @@ private fun FilesScreen(
                                 FileRow(
                                     entry = entry,
                                     enabled = !busy,
+                                    isFavorite =
+                                        favorites.any {
+                                            it.path ==
+                                                favoritePath(entry)
+                                        },
+                                    onToggleFavorite = {
+                                        toggleFavorite(entry)
+                                    },
                                     allowRename =
                                         directory.allowMove,
                                     allowDelete =
@@ -1591,6 +1705,112 @@ private fun FilesScreen(
                                     onDelete = {
                                         onDelete(entry)
                                     },
+                                )
+
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+
+                2 -> {
+                    if (favorites.isEmpty()) {
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize(),
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier.padding(24.dp),
+                                horizontalAlignment =
+                                    Alignment.CenterHorizontally,
+                                verticalArrangement =
+                                    Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "Brak ulubionych",
+                                    style =
+                                        MaterialTheme.typography
+                                            .titleMedium,
+                                    fontWeight =
+                                        FontWeight.Medium,
+                                )
+
+                                Text(
+                                    text =
+                                        "Użyj menu przy pliku lub folderze, aby dodać go do ulubionych.",
+                                    style =
+                                        MaterialTheme.typography
+                                            .bodyMedium,
+                                    color =
+                                        MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier =
+                                Modifier.fillMaxSize(),
+                        ) {
+                            items(
+                                items =
+                                    favorites.sortedBy {
+                                        it.entry.name.lowercase()
+                                    },
+                                key = {
+                                    it.path
+                                },
+                            ) { favorite ->
+                                val entry =
+                                    favorite.entry
+
+                                val parentPath =
+                                    favorite.path
+                                        .substringBeforeLast(
+                                            '/',
+                                            "",
+                                        )
+
+                                FileRow(
+                                    entry = entry,
+                                    enabled = !busy,
+                                    allowRename = false,
+                                    allowDelete = false,
+                                    isFavorite = true,
+                                    onToggleFavorite = {
+                                        removeFavorite(
+                                            favorite,
+                                        )
+                                    },
+                                    secondaryText =
+                                        if (
+                                            parentPath.isEmpty()
+                                        ) {
+                                            "/"
+                                        } else {
+                                            "/$parentPath"
+                                        },
+                                    onClick = {
+                                        onFavoriteClick(
+                                            favorite,
+                                        )
+
+                                        if (
+                                            entry.isDirectory
+                                        ) {
+                                            pagerScope.launch {
+                                                pagerState
+                                                    .animateScrollToPage(
+                                                        1,
+                                                    )
+                                            }
+                                        }
+                                    },
+                                    onRename = {},
+                                    onDelete = {},
                                 )
 
                                 HorizontalDivider()
@@ -1615,6 +1835,11 @@ private fun FilesScreen(
                     pagerState.animateScrollToPage(1)
                 }
             },
+            onFavorites = {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(2)
+                }
+            },
             onAdd = onUpload,
             busy = busy,
             onLock = onLock,
@@ -1629,6 +1854,7 @@ private fun RouterCloudBottomBar(
     uploadEnabled: Boolean,
     onStart: () -> Unit,
     onFiles: () -> Unit,
+    onFavorites: () -> Unit,
     onAdd: () -> Unit,
     busy: Boolean,
     onLock: () -> Unit,
@@ -1666,6 +1892,14 @@ private fun RouterCloudBottomBar(
                 selected = currentPage == 1,
                 enabled = true,
                 onClick = onFiles,
+            )
+
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Favorite,
+                label = "Ulubione",
+                selected = currentPage == 2,
+                enabled = true,
+                onClick = onFavorites,
             )
 
             RouterCloudBottomBarItem(
@@ -1733,8 +1967,13 @@ private fun RouterCloudBottomBarItem(
         enabled = enabled,
         modifier =
             Modifier
-                .width(82.dp)
+                .width(70.dp)
                 .height(62.dp),
+        contentPadding =
+            androidx.compose.foundation.layout.PaddingValues(
+                horizontal = 2.dp,
+                vertical = 0.dp,
+            ),
     ) {
         Column(
             horizontalAlignment =
@@ -5659,6 +5898,9 @@ private fun FileRow(
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    isFavorite: Boolean = false,
+    onToggleFavorite: (() -> Unit)? = null,
+    secondaryText: String? = null,
 ) {
     var menuExpanded by remember {
         mutableStateOf(false)
@@ -5699,17 +5941,23 @@ private fun FileRow(
             }
 
             Text(
-                text = if (entry.isDirectory) {
-                    "Katalog"
-                } else {
-                    formatBytes(entry.size)
-                },
+                text =
+                    secondaryText
+                        ?: if (entry.isDirectory) {
+                            "Katalog"
+                        } else {
+                            formatBytes(entry.size)
+                        },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        if (allowRename || allowDelete) {
+        if (
+            allowRename ||
+            allowDelete ||
+            onToggleFavorite != null
+        ) {
             Box {
                 TextButton(
                     onClick = {
@@ -5726,6 +5974,24 @@ private fun FileRow(
                         menuExpanded = false
                     },
                 ) {
+                    if (onToggleFavorite != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (isFavorite) {
+                                        "Usuń z ulubionych"
+                                    } else {
+                                        "Dodaj do ulubionych"
+                                    },
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleFavorite()
+                            },
+                        )
+                    }
+
                     if (allowRename) {
                         DropdownMenuItem(
                             text = {
