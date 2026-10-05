@@ -1099,30 +1099,45 @@ private fun FilesScreen(
 
         HorizontalDivider()
 
-        LazyColumn(
+        Box(
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(
-                items = directory.entries,
-                key = { "${it.pathType}:${it.name}" },
-            ) { entry ->
-                FileRow(
-                    entry = entry,
-                    enabled = !busy,
-                    allowRename = directory.allowMove,
-                    allowDelete = directory.allowDelete,
-                    onClick = {
-                        onEntryClick(entry)
-                    },
-                    onRename = {
-                        onRename(entry)
-                    },
-                    onDelete = {
-                        onDelete(entry)
-                    },
-                )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(
+                    items = directory.entries,
+                    key = { "${it.pathType}:${it.name}" },
+                ) { entry ->
+                    FileRow(
+                        entry = entry,
+                        enabled = !busy,
+                        allowRename = directory.allowMove,
+                        allowDelete = directory.allowDelete,
+                        onClick = {
+                            onEntryClick(entry)
+                        },
+                        onRename = {
+                            onRename(entry)
+                        },
+                        onDelete = {
+                            onDelete(entry)
+                        },
+                    )
 
-                HorizontalDivider()
+                    HorizontalDivider()
+                }
+            }
+
+            if (tileEditMode) {
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(100f)
+                        .clickable {
+                            tileEditMode = false
+                        },
+                )
             }
         }
     }
