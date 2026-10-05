@@ -1320,17 +1320,7 @@ private fun FilesScreen(
     val context = LocalContext.current
     val pagerScope = rememberCoroutineScope()
 
-    var showMoreTiles by remember(context) {
-        mutableStateOf(
-            loadMetroShowMoreTiles(context),
-        )
-    }
-
     var headerMenuExpanded by remember {
-        mutableStateOf(false)
-    }
-
-    var tileEditMode by remember {
         mutableStateOf(false)
     }
 
@@ -1349,11 +1339,9 @@ private fun FilesScreen(
 
     LaunchedEffect(
         pendingSharedFile,
-        tileEditMode,
     ) {
         if (
             pendingSharedFile &&
-            !tileEditMode &&
             pagerState.currentPage != 1
         ) {
             pagerState.animateScrollToPage(1)
@@ -1385,8 +1373,8 @@ private fun FilesScreen(
                 .padding(
                     start = 20.dp,
                     end = 12.dp,
-                    top = 18.dp,
-                    bottom = 8.dp,
+                    top = 10.dp,
+                    bottom = 4.dp,
                 ),
             horizontalArrangement =
                 Arrangement.SpaceBetween,
@@ -1400,14 +1388,14 @@ private fun FilesScreen(
                     text = "RouterCloud",
                     style =
                         MaterialTheme.typography
-                            .headlineLarge,
+                            .headlineMedium,
                     fontWeight = FontWeight.Bold,
                 )
 
                 Text(
                     text =
                         if (pagerState.currentPage == 0) {
-                            "Start"
+                            "Twój prywatny dysk w sieci domowej"
                         } else {
                             "${directory.entries.size} elementów na dysku"
                         },
@@ -1436,29 +1424,6 @@ private fun FilesScreen(
                 ) {
                     DropdownMenuItem(
                         text = {
-                            Text("Pokaż więcej kafelków")
-                        },
-                        trailingIcon = {
-                            Switch(
-                                checked = showMoreTiles,
-                                onCheckedChange = null,
-                            )
-                        },
-                        onClick = {
-                            showMoreTiles =
-                                !showMoreTiles
-
-                            saveMetroShowMoreTiles(
-                                context,
-                                showMoreTiles,
-                            )
-
-                            headerMenuExpanded = false
-                        },
-                    )
-
-                    DropdownMenuItem(
-                        text = {
                             Text("Zablokuj")
                         },
                         enabled = !busy,
@@ -1484,29 +1449,27 @@ private fun FilesScreen(
 
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = !tileEditMode,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            userScrollEnabled = true,
         ) { page ->
             when (page) {
                 0 -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        MetroTileDashboard(
-                            storage = directory.storage,
-                            allowUpload =
-                                directory.allowUpload,
-                            busy = busy,
-                            showMoreTiles = showMoreTiles,
-                            editMode = tileEditMode,
-                            onEditModeChange = {
-                                tileEditMode = it
-                            },
-                            onUpload = onUpload,
-                            onCreateDirectory =
-                                onCreateDirectory,
-                        )
-                    }
+                    CompactHomeDashboard(
+                        directory = directory,
+                        busy = busy,
+                        onOpenFiles = {
+                            pagerScope.launch {
+                                pagerState.animateScrollToPage(1)
+                            }
+                        },
+                        onUpload = onUpload,
+                        onCreateDirectory =
+                            onCreateDirectory,
+                        onEntryClick = onEntryClick,
+                    )
                 }
 
                 1 -> {
@@ -1636,6 +1599,178 @@ private fun FilesScreen(
                     }
                 }
             }
+        }
+
+        RouterCloudBottomBar(
+            currentPage = pagerState.currentPage,
+            uploadEnabled =
+                !busy && directory.allowUpload,
+            onStart = {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(0)
+                }
+            },
+            onFiles = {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(1)
+                }
+            },
+            onAdd = onUpload,
+            busy = busy,
+            onLock = onLock,
+            onLogout = onLogout,
+        )
+    }
+}
+
+@Composable
+private fun RouterCloudBottomBar(
+    currentPage: Int,
+    uploadEnabled: Boolean,
+    onStart: () -> Unit,
+    onFiles: () -> Unit,
+    onAdd: () -> Unit,
+    busy: Boolean,
+    onLock: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    var moreMenuExpanded by remember {
+        mutableStateOf(false)
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        tonalElevation = 5.dp,
+        shape = RectangleShape,
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(66.dp),
+            horizontalArrangement =
+                Arrangement.SpaceEvenly,
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Home,
+                label = "Start",
+                selected = currentPage == 0,
+                enabled = true,
+                onClick = onStart,
+            )
+
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Files,
+                label = "Pliki",
+                selected = currentPage == 1,
+                enabled = true,
+                onClick = onFiles,
+            )
+
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Add,
+                label = "Dodaj",
+                selected = false,
+                enabled = uploadEnabled,
+                onClick = onAdd,
+            )
+
+            Box {
+                RouterCloudBottomBarItem(
+                    icon = MetroActionGlyphType.More,
+                    label = "Więcej",
+                    selected = false,
+                    enabled = true,
+                    onClick = {
+                        moreMenuExpanded = true
+                    },
+                )
+
+                DropdownMenu(
+                    expanded = moreMenuExpanded,
+                    onDismissRequest = {
+                        moreMenuExpanded = false
+                    },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text("Zablokuj")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            moreMenuExpanded = false
+                            onLock()
+                        },
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Wyloguj")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            moreMenuExpanded = false
+                            onLogout()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouterCloudBottomBarItem(
+    icon: MetroActionGlyphType,
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier =
+            Modifier
+                .width(82.dp)
+                .height(62.dp),
+    ) {
+        Column(
+            horizontalAlignment =
+                Alignment.CenterHorizontally,
+            verticalArrangement =
+                Arrangement.Center,
+        ) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides
+                    if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant
+                    },
+            ) {
+                MetroActionGlyph(
+                    type = icon,
+                    glyphSize = 23.dp,
+                )
+            }
+
+            Text(
+                text = label,
+                style =
+                    MaterialTheme.typography
+                        .labelSmall,
+                maxLines = 1,
+                color =
+                    if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant
+                    },
+            )
         }
     }
 }
@@ -2345,6 +2480,279 @@ private fun Modifier.metroTileDimensions(
 
     return width(tileWidth)
         .height(tileHeight)
+}
+
+
+@Composable
+private fun CompactHomeDashboard(
+    directory: RouterCloudDirectory,
+    busy: Boolean,
+    onOpenFiles: () -> Unit,
+    onUpload: () -> Unit,
+    onCreateDirectory: () -> Unit,
+    onEntryClick: (RouterCloudEntry) -> Unit,
+) {
+    val storage = directory.storage
+    val recentEntries =
+        directory.entries.take(3)
+
+    val storagePercentage =
+        if (
+            storage != null &&
+            storage.total > 0L
+        ) {
+            (
+                storage.used.toDouble() /
+                    storage.total.toDouble() *
+                    100.0
+            ).coerceIn(0.0, 100.0)
+        } else {
+            0.0
+        }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = 18.dp,
+                    vertical = 8.dp,
+                ),
+        verticalArrangement =
+            Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            horizontalArrangement =
+                Arrangement.spacedBy(10.dp),
+        ) {
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.Files,
+                label = "Pliki",
+                enabled = !busy,
+                onClick = onOpenFiles,
+            )
+
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.Upload,
+                label = "Prześlij",
+                enabled =
+                    !busy &&
+                        directory.allowUpload,
+                onClick = onUpload,
+            )
+        }
+
+        Row(
+            horizontalArrangement =
+                Arrangement.spacedBy(10.dp),
+        ) {
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.NewFolder,
+                label = "Nowy folder",
+                enabled =
+                    !busy &&
+                        directory.allowUpload,
+                onClick = onCreateDirectory,
+            )
+
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.Recent,
+                label = "Ostatnie",
+                enabled = !busy,
+                onClick = onOpenFiles,
+            )
+        }
+
+        if (storage != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 2.dp,
+                shape = RectangleShape,
+            ) {
+                Column(
+                    modifier =
+                        Modifier.padding(14.dp),
+                    verticalArrangement =
+                        Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        horizontalArrangement =
+                            Arrangement.SpaceBetween,
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Pamięć",
+                            style =
+                                MaterialTheme.typography
+                                    .titleMedium,
+                            fontWeight =
+                                FontWeight.SemiBold,
+                        )
+
+                        Text(
+                            text =
+                                String.format(
+                                    Locale.getDefault(),
+                                    "%.1f%%",
+                                    storagePercentage,
+                                ),
+                            style =
+                                MaterialTheme.typography
+                                    .bodyMedium,
+                        )
+                    }
+
+                    Text(
+                        text =
+                            "${formatBytes(storage.available)} wolne z " +
+                                formatBytes(storage.total),
+                        style =
+                            MaterialTheme.typography
+                                .bodyMedium,
+                    )
+
+                    Text(
+                        text =
+                            "${formatBytes(storage.used)} zajęte",
+                        style =
+                            MaterialTheme.typography
+                                .bodySmall,
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.SpaceBetween,
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Ostatnie pliki",
+                style =
+                    MaterialTheme.typography
+                        .titleMedium,
+                fontWeight =
+                    FontWeight.SemiBold,
+            )
+
+            TextButton(
+                onClick = onOpenFiles,
+                enabled = !busy,
+            ) {
+                Text("Wszystkie")
+            }
+        }
+
+        if (recentEntries.isEmpty()) {
+            Text(
+                text = "Brak elementów",
+                style =
+                    MaterialTheme.typography
+                        .bodyMedium,
+                color =
+                    MaterialTheme.colorScheme
+                        .onSurfaceVariant,
+            )
+        } else {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(0.dp),
+            ) {
+                recentEntries.forEach { entry ->
+                    TextButton(
+                        onClick = {
+                            onEntryClick(entry)
+                        },
+                        enabled = !busy,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            MetroFileIcon(
+                                entry = entry,
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(10.dp),
+                            )
+
+                            Text(
+                                text =
+                                    entry.name
+                                        .trim('/')
+                                        .substringAfterLast('/'),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactHomeActionTile(
+    icon: MetroActionGlyphType,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .width(150.dp)
+                .height(72.dp),
+        tonalElevation = 2.dp,
+        shape = RectangleShape,
+    ) {
+        TextButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier =
+                Modifier.fillMaxSize(),
+        ) {
+            Column(
+                modifier =
+                    Modifier.fillMaxSize(),
+                verticalArrangement =
+                    Arrangement.Center,
+                horizontalAlignment =
+                    Alignment.Start,
+            ) {
+                MetroActionGlyph(
+                    type = icon,
+                    glyphSize = 30.dp,
+                )
+
+                Text(
+                    text = label,
+                    style =
+                        MaterialTheme.typography
+                            .bodyMedium,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                )
+            }
+        }
+    }
 }
 
 
