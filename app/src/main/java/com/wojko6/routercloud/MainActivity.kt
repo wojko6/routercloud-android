@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.rememberScrollState
@@ -905,6 +907,7 @@ private fun FilesScreen(
             uploadingFile != null
 
     val context = LocalContext.current
+    val pagerScope = rememberCoroutineScope()
 
     var showMoreTiles by remember(context) {
         mutableStateOf(
@@ -918,6 +921,46 @@ private fun FilesScreen(
 
     var tileEditMode by remember {
         mutableStateOf(false)
+    }
+
+    val pagerState =
+        rememberPagerState(
+            initialPage =
+                if (pendingSharedFile) {
+                    1
+                } else {
+                    0
+                },
+            pageCount = {
+                2
+            },
+        )
+
+    LaunchedEffect(
+        pendingSharedFile,
+        tileEditMode,
+    ) {
+        if (
+            pendingSharedFile &&
+            !tileEditMode &&
+            pagerState.currentPage != 1
+        ) {
+            pagerState.animateScrollToPage(1)
+        }
+    }
+
+    BackHandler(
+        enabled = pagerState.currentPage == 1,
+    ) {
+        if (!busy) {
+            if (currentPath.isNotEmpty()) {
+                onBack()
+            } else {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(0)
+                }
+            }
+        }
     }
 
     Column(
@@ -934,28 +977,34 @@ private fun FilesScreen(
                     top = 18.dp,
                     bottom = 8.dp,
                 ),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement =
+                Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top,
         ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement =
+                    Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = "RouterCloud",
-                    style = MaterialTheme.typography.headlineLarge,
+                    style =
+                        MaterialTheme.typography
+                            .headlineLarge,
                     fontWeight = FontWeight.Bold,
                 )
 
                 Text(
-                    text = if (currentPath.isEmpty()) "/" else "/$currentPath",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Text(
-                    text = "${directory.entries.size} elementów",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text =
+                        if (pagerState.currentPage == 0) {
+                            "Start"
+                        } else {
+                            "${directory.entries.size} elementów na dysku"
+                        },
+                    style =
+                        MaterialTheme.typography.bodyMedium,
+                    color =
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant,
                 )
             }
 
@@ -1022,122 +1071,159 @@ private fun FilesScreen(
             }
         }
 
-        if (currentPath.isNotEmpty()) {
-            TextButton(
-                onClick = onBack,
-                enabled = !busy,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            ) {
-                Text("← Wstecz")
-            }
-        }
-
-        MetroTileDashboard(
-            storage = directory.storage,
-            allowUpload = directory.allowUpload,
-            busy = busy,
-            showMoreTiles = showMoreTiles,
-            editMode = tileEditMode,
-            onEditModeChange = {
-                tileEditMode = it
-            },
-            onUpload = onUpload,
-            onCreateDirectory = onCreateDirectory,
-        )
-
-        if (pendingSharedFile) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text = "Plik udostępniony z innej aplikacji",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Button(
-                    onClick = onUploadSharedHere,
-                    enabled = !busy && directory.allowUpload,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Wyślij tutaj")
-                }
-            }
-        }
-
-        if (loading) {
-            Text(
-                text = "Wczytywanie…",
-                modifier = Modifier.padding(20.dp),
-            )
-        }
-
-        if (downloadingFile != null) {
-            Text(
-                text = "Pobieranie: $downloadingFile",
-                modifier = Modifier.padding(20.dp),
-            )
-        }
-
-        if (uploadingFile != null) {
-            Text(
-                text = "Wysyłanie: $uploadingFile",
-                modifier = Modifier.padding(20.dp),
-            )
-        }
-
-        if (error != null) {
-            Text(
-                text = error,
-                modifier = Modifier.padding(20.dp),
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-
-        HorizontalDivider()
-
-        Box(
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier.fillMaxSize(),
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(
-                    items = directory.entries,
-                    key = { "${it.pathType}:${it.name}" },
-                ) { entry ->
-                    FileRow(
-                        entry = entry,
-                        enabled = !busy,
-                        allowRename = directory.allowMove,
-                        allowDelete = directory.allowDelete,
-                        onClick = {
-                            onEntryClick(entry)
-                        },
-                        onRename = {
-                            onRename(entry)
-                        },
-                        onDelete = {
-                            onDelete(entry)
-                        },
-                    )
-
-                    HorizontalDivider()
+            userScrollEnabled = !tileEditMode,
+        ) { page ->
+            when (page) {
+                0 -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        MetroTileDashboard(
+                            storage = directory.storage,
+                            allowUpload =
+                                directory.allowUpload,
+                            busy = busy,
+                            showMoreTiles = showMoreTiles,
+                            editMode = tileEditMode,
+                            onEditModeChange = {
+                                tileEditMode = it
+                            },
+                            onUpload = onUpload,
+                            onCreateDirectory =
+                                onCreateDirectory,
+                        )
+                    }
                 }
-            }
 
-            if (tileEditMode) {
-                Spacer(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(100f)
-                        .clickable {
-                            tileEditMode = false
-                        },
-                )
+                1 -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 8.dp),
+                    ) {
+                        if (currentPath.isNotEmpty()) {
+                            TextButton(
+                                onClick = onBack,
+                                enabled = !busy,
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal = 12.dp,
+                                    ),
+                            ) {
+                                Text("← Wstecz")
+                            }
+                        }
+
+                        if (pendingSharedFile) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = 20.dp,
+                                        vertical = 8.dp,
+                                    ),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text =
+                                        "Plik udostępniony z innej aplikacji",
+                                    style =
+                                        MaterialTheme.typography
+                                            .bodyMedium,
+                                    color =
+                                        MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                )
+
+                                Button(
+                                    onClick =
+                                        onUploadSharedHere,
+                                    enabled =
+                                        !busy &&
+                                            directory.allowUpload,
+                                    modifier =
+                                        Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Wyślij tutaj")
+                                }
+                            }
+                        }
+
+                        if (loading) {
+                            Text(
+                                text = "Wczytywanie…",
+                                modifier =
+                                    Modifier.padding(20.dp),
+                            )
+                        }
+
+                        if (downloadingFile != null) {
+                            Text(
+                                text =
+                                    "Pobieranie: $downloadingFile",
+                                modifier =
+                                    Modifier.padding(20.dp),
+                            )
+                        }
+
+                        if (uploadingFile != null) {
+                            Text(
+                                text =
+                                    "Wysyłanie: $uploadingFile",
+                                modifier =
+                                    Modifier.padding(20.dp),
+                            )
+                        }
+
+                        if (error != null) {
+                            Text(
+                                text = error,
+                                modifier =
+                                    Modifier.padding(20.dp),
+                                color =
+                                    MaterialTheme.colorScheme
+                                        .error,
+                            )
+                        }
+
+                        HorizontalDivider()
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(
+                                items = directory.entries,
+                                key = {
+                                    "${it.pathType}:${it.name}"
+                                },
+                            ) { entry ->
+                                FileRow(
+                                    entry = entry,
+                                    enabled = !busy,
+                                    allowRename =
+                                        directory.allowMove,
+                                    allowDelete =
+                                        directory.allowDelete,
+                                    onClick = {
+                                        onEntryClick(entry)
+                                    },
+                                    onRename = {
+                                        onRename(entry)
+                                    },
+                                    onDelete = {
+                                        onDelete(entry)
+                                    },
+                                )
+
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
             }
         }
     }
