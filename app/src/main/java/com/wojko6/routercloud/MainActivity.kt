@@ -2052,6 +2052,12 @@ private fun MetroTileDashboard(
         >(null)
     }
 
+    var dragLastValidPositions by remember {
+        mutableStateOf<
+            Map<String, MetroTilePosition>?
+        >(null)
+    }
+
     var folderHoverTargetId by remember {
         mutableStateOf<String?>(null)
     }
@@ -3069,6 +3075,9 @@ private fun MetroTileDashboard(
                                 dragRequestedPosition =
                                     null
 
+                                dragLastValidPositions =
+                                    null
+
                                 folderHoverGeneration +=
                                     1
 
@@ -3170,6 +3179,39 @@ private fun MetroTileDashboard(
                                     candidate
 
                                 /*
+                                 * Calculate the candidate layout during
+                                 * the drag, but do not render it yet.
+                                 *
+                                 * This preserves the last valid layout
+                                 * without bringing live reflow/jitter
+                                 * back to the dashboard.
+                                 */
+                                val resolvedCandidate =
+                                    resolveMetroTileLayoutChange(
+                                        tileId =
+                                            tileId,
+                                        requestedPosition =
+                                            candidate,
+                                        requestedSize =
+                                            tileSize,
+                                        positions =
+                                            basePositions,
+                                        sizes =
+                                            currentTileSizes,
+                                        tileIds =
+                                            visibleOrder,
+                                        gridUnits =
+                                            gridUnits,
+                                        workspaceRows =
+                                            METRO_WORKSPACE_ROWS,
+                                    )
+
+                                if (resolvedCandidate != null) {
+                                    dragLastValidPositions =
+                                        resolvedCandidate.positions
+                                }
+
+                                /*
                                  * Folder intent:
                                  * source must be a leaf tile.
                                  *
@@ -3269,41 +3311,16 @@ private fun MetroTileDashboard(
                                     }
                                 }
 
-                                if (
-                                    hoverTargetId != null
-                                ) {
-                                    /*
-                                     * Freeze reflow while folder
-                                     * intent is being evaluated.
-                                     */
-                                    tilePositions =
-                                        basePositions
-                                } else {
-                                    val resolved =
-                                        resolveMetroTileLayoutChange(
-                                            tileId =
-                                                tileId,
-                                            requestedPosition =
-                                                candidate,
-                                            requestedSize =
-                                                tileSize,
-                                            positions =
-                                                basePositions,
-                                            sizes =
-                                                currentTileSizes,
-                                            tileIds =
-                                                visibleOrder,
-                                            gridUnits =
-                                                gridUnits,
-                                            workspaceRows =
-                                                METRO_WORKSPACE_ROWS,
-                                        )
-
-                                    if (resolved != null) {
-                                        tilePositions =
-                                            resolved.positions
-                                    }
-                                }
+                                /*
+                                 * Keep the dashboard stable while
+                                 * the finger is moving.
+                                 *
+                                 * The detached drag overlay follows
+                                 * the pointer. The actual layout is
+                                 * resolved once, on drop.
+                                 */
+                                tilePositions =
+                                    basePositions
                             }
                         },
                         onDragEnd = {
@@ -3325,52 +3342,27 @@ private fun MetroTileDashboard(
                                  * release before 650 ms means
                                  * normal drag, not folder create.
                                  */
-                                if (
-                                    folderHoverTargetId !=
-                                        null
-                                ) {
-                                    val requested =
-                                        dragRequestedPosition
+                                /*
+                                 * Resolve normal movement only once
+                                 * when the pointer is released.
+                                 *
+                                 * This also covers F01: releasing
+                                 * over a folder target before the
+                                 * 650 ms arm delay remains a normal
+                                 * tile move.
+                                 */
+                                val resolvedPositions =
+                                    dragLastValidPositions
 
-                                    val basePositions =
-                                        dragStartPositions
-
-                                    val tileSize =
-                                        currentTileSizes[
-                                            tileId
-                                        ]
-
-                                    if (
-                                        requested != null &&
-                                        basePositions !=
-                                            null &&
-                                        tileSize != null
-                                    ) {
-                                        val resolved =
-                                            resolveMetroTileLayoutChange(
-                                                tileId =
-                                                    tileId,
-                                                requestedPosition =
-                                                    requested,
-                                                requestedSize =
-                                                    tileSize,
-                                                positions =
-                                                    basePositions,
-                                                sizes =
-                                                    currentTileSizes,
-                                                tileIds =
-                                                    visibleOrder,
-                                                gridUnits =
-                                                    gridUnits,
-                                                workspaceRows =
-                                                    METRO_WORKSPACE_ROWS,
-                                            )
-
-                                        if (resolved != null) {
+                                if (resolvedPositions != null) {
+                                    tilePositions =
+                                        resolvedPositions
+                                } else {
+                                    dragStartPositions
+                                        ?.let {
                                             tilePositions =
-                                                resolved.positions
+                                                it
                                         }
-                                    }
                                 }
 
                                 val finalLayoutIsValid =
@@ -3414,6 +3406,9 @@ private fun MetroTileDashboard(
                             dragRequestedPosition =
                                 null
 
+                            dragLastValidPositions =
+                                null
+
                             dragStartBounds =
                                 null
 
@@ -3438,6 +3433,9 @@ private fun MetroTileDashboard(
                                 null
 
                             dragRequestedPosition =
+                                null
+
+                            dragLastValidPositions =
                                 null
 
                             dragStartBounds =
@@ -3678,6 +3676,7 @@ private fun MetroTileDashboard(
                                     storage = it,
                                     tileSize = storageSize,
                                     onSizeChange = {},
+                                    dragPreview = true,
                                     modifier =
                                         Modifier.fillMaxSize(),
                                 )
@@ -4301,6 +4300,7 @@ private fun StorageTile(
     editMode: Boolean = false,
     onEditClick: () -> Unit = {},
     showResizeControl: Boolean = false,
+    dragPreview: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val percentage =
@@ -4320,17 +4320,22 @@ private fun StorageTile(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .combinedClickable(
+                .clickable(
                     onClick = {
                         if (editMode) {
                             onEditClick()
                         }
                     },
-                    onLongClick = onLongClick,
                 ),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
             shape = RectangleShape,
+            color =
+                if (dragPreview) {
+                    MaterialTheme.colorScheme.surfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.surface
+                },
         ) {
             when (tileSize) {
                 MetroTileSize.Small -> {
