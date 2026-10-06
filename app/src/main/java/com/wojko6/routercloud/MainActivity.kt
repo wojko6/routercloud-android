@@ -468,9 +468,10 @@ private fun RouterCloudApp(
         }
     }
 
-    fun openTextPreview(entry: RouterCloudEntry) {
-        val path = remotePath(entry)
-
+    fun openTextPreviewAtPath(
+        entry: RouterCloudEntry,
+        path: String,
+    ) {
         scope.launch {
             loading = true
             error = null
@@ -486,11 +487,22 @@ private fun RouterCloudApp(
                     content = text,
                 )
             } catch (e: Exception) {
-                error = e.message ?: "Nie udało się otworzyć podglądu."
+                error =
+                    e.message
+                        ?: "Nie udało się otworzyć podglądu."
             } finally {
                 loading = false
             }
         }
+    }
+
+    fun openTextPreview(
+        entry: RouterCloudEntry,
+    ) {
+        openTextPreviewAtPath(
+            entry = entry,
+            path = remotePath(entry),
+        )
     }
 
     fun unlockWithFingerprint() {
@@ -586,6 +598,21 @@ private fun RouterCloudApp(
                 },
                 onFingerprintUnlock = {
                     unlockWithFingerprint()
+                },
+                onForgotPassword = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse(
+                                    "https://cloud.home.arpa/__routercloud/login",
+                                ),
+                            ),
+                        )
+                    }.onFailure {
+                        error =
+                            "Nie udało się otworzyć odzyskiwania hasła."
+                    }
                 },
                 onLogin = {
                     if (username.isBlank() || password.isEmpty()) {
@@ -713,6 +740,31 @@ private fun RouterCloudApp(
                         )
                     }
                 },
+                onFavoriteClick = { favorite ->
+                    val entry = favorite.entry
+
+                    if (entry.isDirectory) {
+                        loadDirectory(favorite.path)
+                    } else if (supportsTextPreview(entry.name)) {
+                        openTextPreviewAtPath(
+                            entry = entry,
+                            path = favorite.path,
+                        )
+                    } else {
+                        downloadAndOpen(
+                            fileName = entry.name,
+                            path = favorite.path,
+                        )
+                    }
+                },
+                onRunSync = { config ->
+                    withContext(Dispatchers.IO) {
+                        RouterCloudSyncEngine(
+                            context = context,
+                            client = client,
+                        ).sync(config)
+                    }
+                },
                 onBack = {
                     val parent = currentPath
                         .trim('/')
@@ -804,80 +856,475 @@ private fun LoginScreen(
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onFingerprintUnlock: () -> Unit,
+    onForgotPassword: () -> Unit,
     onLogin: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+    val background =
+        androidx.compose.ui.graphics.Color(
+            0xFF070B12,
+        )
+
+    val panel =
+        androidx.compose.ui.graphics.Color(
+            0xFF0E1A2F,
+        )
+
+    val field =
+        androidx.compose.ui.graphics.Color(
+            0xFF21395B,
+        )
+
+    val fieldFocus =
+        androidx.compose.ui.graphics.Color(
+            0xFF25426C,
+        )
+
+    val border =
+        androidx.compose.ui.graphics.Color(
+            0xFF3D8BFF,
+        )
+
+    val borderSoft =
+        androidx.compose.ui.graphics.Color(
+            0x4D71A6EF,
+        )
+
+    val blue =
+        androidx.compose.ui.graphics.Color(
+            0xFF2F80FF,
+        )
+
+    val text =
+        androidx.compose.ui.graphics.Color(
+            0xFFF3F7FD,
+        )
+
+    val muted =
+        androidx.compose.ui.graphics.Color(
+            0xFF8F9DB2,
+        )
+
+    val errorColor =
+        androidx.compose.ui.graphics.Color(
+            0xFFED7777,
+        )
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = background,
     ) {
-        Text(
-            text = "RouterCloud",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-        )
-
-        Text(
-            text = "Prywatna chmura",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Text(
-            text = "Połączenie szyfrowane z cloud.home.arpa",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = onUsernameChange,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            singleLine = true,
-            label = { Text("Login lub e-mail") },
-        )
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPasswordChange,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            singleLine = true,
-            label = { Text("Hasło") },
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-            ),
-        )
-
-        if (error != null) {
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-
-        if (fingerprintAvailable) {
-            Button(
-                onClick = onFingerprintUnlock,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !loading,
-            ) {
-                Text("Odblokuj odciskiem palca")
-            }
-        }
-
-        Button(
-            onClick = onLogin,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
+        Box(
+            modifier = Modifier.fillMaxSize(),
         ) {
-            if (loading) {
-                CircularProgressIndicator()
-            } else {
-                Text("Zaloguj")
+            Canvas(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                drawCircle(
+                    color =
+                        blue.copy(
+                            alpha = 0.18f,
+                        ),
+                    radius =
+                        size.minDimension *
+                            0.62f,
+                    center =
+                        Offset(
+                            x =
+                                size.width *
+                                    0.08f,
+                            y =
+                                size.height *
+                                    0.12f,
+                        ),
+                )
+
+                drawCircle(
+                    color =
+                        blue.copy(
+                            alpha = 0.09f,
+                        ),
+                    radius =
+                        size.minDimension *
+                            0.70f,
+                    center =
+                        Offset(
+                            x =
+                                size.width *
+                                    0.90f,
+                            y =
+                                size.height *
+                                    0.78f,
+                        ),
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .safeDrawingPadding()
+                    .padding(
+                        horizontal = 20.dp,
+                        vertical = 24.dp,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    color = panel,
+                    shape = RectangleShape,
+                    border =
+                        androidx.compose.foundation
+                            .BorderStroke(
+                                width = 1.dp,
+                                color =
+                                    border.copy(
+                                        alpha = 0.68f,
+                                    ),
+                            ),
+                    shadowElevation = 18.dp,
+                ) {
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 26.dp,
+                                vertical = 32.dp,
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                18.dp,
+                            ),
+                    ) {
+                        /*
+                         * Branding follows the browser
+                         * RouterCloud composition:
+                         *
+                         * logo + RouterCloud centered
+                         * as one visual unit.
+                         */
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.Center,
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.foundation.Image(
+                                painter =
+                                    androidx.compose.ui.res
+                                        .painterResource(
+                                            id =
+                                                R.drawable.routercloud_brand,
+                                        ),
+                                contentDescription =
+                                    null,
+                                modifier =
+                                    Modifier.size(
+                                        76.dp,
+                                    ),
+                                contentScale =
+                                    androidx.compose.ui.layout
+                                        .ContentScale.Fit,
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(
+                                        18.dp,
+                                    ),
+                            )
+
+                            Text(
+                                text = "RouterCloud",
+                                color = text,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .headlineLarge,
+                                fontWeight =
+                                    FontWeight.Light,
+                                maxLines = 1,
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange =
+                                onUsernameChange,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                            enabled = !loading,
+                            singleLine = true,
+                            placeholder = {
+                                Text(
+                                    "Nazwa użytkownika lub e-mail",
+                                )
+                            },
+                            shape = RectangleShape,
+                            colors =
+                                androidx.compose.material3
+                                    .OutlinedTextFieldDefaults
+                                    .colors(
+                                        focusedTextColor =
+                                            text,
+                                        unfocusedTextColor =
+                                            text,
+                                        disabledTextColor =
+                                            text.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedContainerColor =
+                                            fieldFocus,
+                                        unfocusedContainerColor =
+                                            field,
+                                        disabledContainerColor =
+                                            field.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedBorderColor =
+                                            blue,
+                                        unfocusedBorderColor =
+                                            borderSoft,
+                                        disabledBorderColor =
+                                            borderSoft.copy(
+                                                alpha = 0.45f,
+                                            ),
+                                        cursorColor =
+                                            blue,
+                                        focusedPlaceholderColor =
+                                            muted,
+                                        unfocusedPlaceholderColor =
+                                            muted,
+                                        disabledPlaceholderColor =
+                                            muted.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                    ),
+                        )
+
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange =
+                                onPasswordChange,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                            enabled = !loading,
+                            singleLine = true,
+                            placeholder = {
+                                Text("Hasło")
+                            },
+                            visualTransformation =
+                                PasswordVisualTransformation(),
+                            keyboardOptions =
+                                KeyboardOptions(
+                                    keyboardType =
+                                        KeyboardType.Password,
+                                ),
+                            shape = RectangleShape,
+                            colors =
+                                androidx.compose.material3
+                                    .OutlinedTextFieldDefaults
+                                    .colors(
+                                        focusedTextColor =
+                                            text,
+                                        unfocusedTextColor =
+                                            text,
+                                        disabledTextColor =
+                                            text.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedContainerColor =
+                                            fieldFocus,
+                                        unfocusedContainerColor =
+                                            field,
+                                        disabledContainerColor =
+                                            field.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                        focusedBorderColor =
+                                            blue,
+                                        unfocusedBorderColor =
+                                            borderSoft,
+                                        disabledBorderColor =
+                                            borderSoft.copy(
+                                                alpha = 0.45f,
+                                            ),
+                                        cursorColor =
+                                            blue,
+                                        focusedPlaceholderColor =
+                                            muted,
+                                        unfocusedPlaceholderColor =
+                                            muted,
+                                        disabledPlaceholderColor =
+                                            muted.copy(
+                                                alpha = 0.55f,
+                                            ),
+                                    ),
+                        )
+
+                        if (error != null) {
+                            Surface(
+                                modifier =
+                                    Modifier.fillMaxWidth(),
+                                color =
+                                    errorColor.copy(
+                                        alpha = 0.09f,
+                                    ),
+                                shape = RectangleShape,
+                                border =
+                                    androidx.compose.foundation
+                                        .BorderStroke(
+                                            width = 1.dp,
+                                            color =
+                                                errorColor.copy(
+                                                    alpha = 0.55f,
+                                                ),
+                                        ),
+                            ) {
+                                Text(
+                                    text = error,
+                                    modifier =
+                                        Modifier.padding(
+                                            horizontal = 14.dp,
+                                            vertical = 11.dp,
+                                        ),
+                                    color =
+                                        androidx.compose.ui.graphics
+                                            .Color(
+                                                0xFFFFB0B0,
+                                            ),
+                                    style =
+                                        MaterialTheme
+                                            .typography
+                                            .bodySmall,
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onLogin,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp),
+                            enabled = !loading,
+                            shape = RectangleShape,
+                            colors =
+                                androidx.compose.material3
+                                    .ButtonDefaults
+                                    .buttonColors(
+                                        containerColor =
+                                            blue,
+                                        contentColor =
+                                            androidx.compose.ui.graphics
+                                                .Color.White,
+                                        disabledContainerColor =
+                                            blue.copy(
+                                                alpha = 0.45f,
+                                            ),
+                                        disabledContentColor =
+                                            androidx.compose.ui.graphics
+                                                .Color.White
+                                                .copy(
+                                                    alpha = 0.65f,
+                                                ),
+                                    ),
+                        ) {
+                            if (loading) {
+                                CircularProgressIndicator(
+                                    modifier =
+                                        Modifier.size(
+                                            24.dp,
+                                        ),
+                                    color =
+                                        androidx.compose.ui.graphics
+                                            .Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = "Zaloguj",
+                                    fontWeight =
+                                        FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        TextButton(
+                            onClick =
+                                onForgotPassword,
+                            modifier =
+                                Modifier.align(
+                                    Alignment.CenterHorizontally,
+                                ),
+                            enabled = !loading,
+                            colors =
+                                androidx.compose.material3
+                                    .ButtonDefaults
+                                    .textButtonColors(
+                                        contentColor =
+                                            androidx.compose.ui.graphics
+                                                .Color(
+                                                    0xFF9BC4FF,
+                                                ),
+                                    ),
+                        ) {
+                            Text(
+                                text =
+                                    "Nie pamiętasz hasła?",
+                            )
+                        }
+
+                        if (fingerprintAvailable) {
+                            Button(
+                                onClick =
+                                    onFingerprintUnlock,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                enabled = !loading,
+                                shape = RectangleShape,
+                                border =
+                                    androidx.compose.foundation
+                                        .BorderStroke(
+                                            width = 1.dp,
+                                            color =
+                                                borderSoft,
+                                        ),
+                                colors =
+                                    androidx.compose.material3
+                                        .ButtonDefaults
+                                        .buttonColors(
+                                            containerColor =
+                                                androidx.compose.ui.graphics
+                                                    .Color.Transparent,
+                                            contentColor =
+                                                androidx.compose.ui.graphics
+                                                    .Color(
+                                                        0xFFB6C8E1,
+                                                    ),
+                                            disabledContainerColor =
+                                                androidx.compose.ui.graphics
+                                                    .Color.Transparent,
+                                            disabledContentColor =
+                                                muted.copy(
+                                                    alpha = 0.45f,
+                                                ),
+                                        ),
+                            ) {
+                                Text(
+                                    "Odblokuj odciskiem palca",
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -898,6 +1345,10 @@ private fun FilesScreen(
     onDelete: (RouterCloudEntry) -> Unit,
     onUploadSharedHere: () -> Unit,
     onEntryClick: (RouterCloudEntry) -> Unit,
+    onFavoriteClick: (RouterCloudFavorite) -> Unit,
+    onRunSync:
+        suspend (RouterCloudSyncConfig) ->
+            RouterCloudSyncResult,
     onBack: () -> Unit,
     onLock: () -> Unit,
     onLogout: () -> Unit,
@@ -910,17 +1361,163 @@ private fun FilesScreen(
     val context = LocalContext.current
     val pagerScope = rememberCoroutineScope()
 
-    var showMoreTiles by remember(context) {
+    val syncStore =
+        remember(context) {
+            RouterCloudSyncStore(context)
+        }
+
+    var syncConfig by remember(context) {
         mutableStateOf(
-            loadMetroShowMoreTiles(context),
+            syncStore.load(),
         )
     }
 
-    var headerMenuExpanded by remember {
+    var syncLocalFileCount by remember {
+        mutableStateOf<Int?>(null)
+    }
+
+    var syncSetupBusy by remember {
         mutableStateOf(false)
     }
 
-    var tileEditMode by remember {
+    var syncSetupError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var syncResultMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var showSyncDialog by remember {
+        mutableStateOf(false)
+    }
+
+    val syncFolderPicker =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+            contract =
+                androidx.activity.result.contract
+                    .ActivityResultContracts
+                    .OpenDocumentTree(),
+        ) { uri ->
+            if (uri != null) {
+                syncSetupError = null
+                syncResultMessage = null
+
+                val permissionResult =
+                    runCatching {
+                        context.contentResolver
+                            .takePersistableUriPermission(
+                                uri,
+                                android.content.Intent
+                                    .FLAG_GRANT_READ_URI_PERMISSION,
+                            )
+                    }
+
+                if (permissionResult.isFailure) {
+                    syncSetupError =
+                        "Nie udało się zachować dostępu do folderu."
+                    showSyncDialog = true
+                } else {
+                    syncSetupBusy = true
+
+                    pagerScope.launch {
+                        try {
+                            val fileCount =
+                                withContext(Dispatchers.IO) {
+                                    RouterCloudLocalTreeScanner(
+                                        context,
+                                    )
+                                        .scan(uri)
+                                        .count {
+                                            !it.isDirectory
+                                        }
+                                }
+
+                            syncStore.save(uri)
+
+                            syncConfig =
+                                syncStore.load()
+
+                            syncLocalFileCount =
+                                fileCount
+
+                            syncSetupError = null
+                            showSyncDialog = true
+                        } catch (e: Exception) {
+                            syncSetupError =
+                                e.message
+                                    ?: "Nie udało się odczytać folderu."
+                            showSyncDialog = true
+                        } finally {
+                            syncSetupBusy = false
+                        }
+                    }
+                }
+            }
+        }
+
+    val favoriteStore =
+        remember(context) {
+            RouterCloudFavoriteStore(context)
+        }
+
+    var favorites by remember(context) {
+        mutableStateOf(
+            favoriteStore.load(),
+        )
+    }
+
+    fun favoritePath(
+        entry: RouterCloudEntry,
+    ): String =
+        listOf(
+            currentPath.trim('/'),
+            entry.name.trim('/'),
+        )
+            .filter { it.isNotEmpty() }
+            .joinToString("/")
+
+    fun toggleFavorite(
+        entry: RouterCloudEntry,
+    ) {
+        val path = favoritePath(entry)
+
+        val updated =
+            favorites
+                .filterNot {
+                    it.path == path
+                }
+                .toMutableList()
+
+        if (
+            favorites.none {
+                it.path == path
+            }
+        ) {
+            updated +=
+                RouterCloudFavorite(
+                    path = path,
+                    entry = entry,
+                )
+        }
+
+        favorites = updated
+        favoriteStore.save(updated)
+    }
+
+    fun removeFavorite(
+        favorite: RouterCloudFavorite,
+    ) {
+        val updated =
+            favorites.filterNot {
+                it.path == favorite.path
+            }
+
+        favorites = updated
+        favoriteStore.save(updated)
+    }
+
+    var headerMenuExpanded by remember {
         mutableStateOf(false)
     }
 
@@ -933,17 +1530,15 @@ private fun FilesScreen(
                     0
                 },
             pageCount = {
-                2
+                3
             },
         )
 
     LaunchedEffect(
         pendingSharedFile,
-        tileEditMode,
     ) {
         if (
             pendingSharedFile &&
-            !tileEditMode &&
             pagerState.currentPage != 1
         ) {
             pagerState.animateScrollToPage(1)
@@ -951,14 +1546,24 @@ private fun FilesScreen(
     }
 
     BackHandler(
-        enabled = pagerState.currentPage == 1,
+        enabled = pagerState.currentPage != 0,
     ) {
         if (!busy) {
-            if (currentPath.isNotEmpty()) {
-                onBack()
-            } else {
-                pagerScope.launch {
-                    pagerState.animateScrollToPage(0)
+            when (pagerState.currentPage) {
+                1 -> {
+                    if (currentPath.isNotEmpty()) {
+                        onBack()
+                    } else {
+                        pagerScope.launch {
+                            pagerState.animateScrollToPage(0)
+                        }
+                    }
+                }
+
+                2 -> {
+                    pagerScope.launch {
+                        pagerState.animateScrollToPage(0)
+                    }
                 }
             }
         }
@@ -975,8 +1580,8 @@ private fun FilesScreen(
                 .padding(
                     start = 20.dp,
                     end = 12.dp,
-                    top = 18.dp,
-                    bottom = 8.dp,
+                    top = 10.dp,
+                    bottom = 4.dp,
                 ),
             horizontalArrangement =
                 Arrangement.SpaceBetween,
@@ -990,16 +1595,21 @@ private fun FilesScreen(
                     text = "RouterCloud",
                     style =
                         MaterialTheme.typography
-                            .headlineLarge,
+                            .headlineMedium,
                     fontWeight = FontWeight.Bold,
                 )
 
                 Text(
                     text =
-                        if (pagerState.currentPage == 0) {
-                            "Start"
-                        } else {
-                            "${directory.entries.size} elementów na dysku"
+                        when (pagerState.currentPage) {
+                            0 ->
+                                "Twój prywatny dysk w sieci domowej"
+
+                            1 ->
+                                "${directory.entries.size} elementów na dysku"
+
+                            else ->
+                                "${favorites.size} ulubionych"
                         },
                     style =
                         MaterialTheme.typography.bodyMedium,
@@ -1024,29 +1634,6 @@ private fun FilesScreen(
                         headerMenuExpanded = false
                     },
                 ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text("Pokaż więcej kafelków")
-                        },
-                        trailingIcon = {
-                            Switch(
-                                checked = showMoreTiles,
-                                onCheckedChange = null,
-                            )
-                        },
-                        onClick = {
-                            showMoreTiles =
-                                !showMoreTiles
-
-                            saveMetroShowMoreTiles(
-                                context,
-                                showMoreTiles,
-                            )
-
-                            headerMenuExpanded = false
-                        },
-                    )
-
                     DropdownMenuItem(
                         text = {
                             Text("Zablokuj")
@@ -1074,29 +1661,27 @@ private fun FilesScreen(
 
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = !tileEditMode,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            userScrollEnabled = true,
         ) { page ->
             when (page) {
                 0 -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        MetroTileDashboard(
-                            storage = directory.storage,
-                            allowUpload =
-                                directory.allowUpload,
-                            busy = busy,
-                            showMoreTiles = showMoreTiles,
-                            editMode = tileEditMode,
-                            onEditModeChange = {
-                                tileEditMode = it
-                            },
-                            onUpload = onUpload,
-                            onCreateDirectory =
-                                onCreateDirectory,
-                        )
-                    }
+                    CompactHomeDashboard(
+                        directory = directory,
+                        busy = busy,
+                        onOpenFiles = {
+                            pagerScope.launch {
+                                pagerState.animateScrollToPage(1)
+                            }
+                        },
+                        onUpload = onUpload,
+                        onCreateDirectory =
+                            onCreateDirectory,
+                        onEntryClick = onEntryClick,
+                    )
                 }
 
                 1 -> {
@@ -1205,6 +1790,14 @@ private fun FilesScreen(
                                 FileRow(
                                     entry = entry,
                                     enabled = !busy,
+                                    isFavorite =
+                                        favorites.any {
+                                            it.path ==
+                                                favoritePath(entry)
+                                        },
+                                    onToggleFavorite = {
+                                        toggleFavorite(entry)
+                                    },
                                     allowRename =
                                         directory.allowMove,
                                     allowDelete =
@@ -1225,7 +1818,550 @@ private fun FilesScreen(
                         }
                     }
                 }
+
+                2 -> {
+                    if (favorites.isEmpty()) {
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize(),
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier.padding(24.dp),
+                                horizontalAlignment =
+                                    Alignment.CenterHorizontally,
+                                verticalArrangement =
+                                    Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "Brak ulubionych",
+                                    style =
+                                        MaterialTheme.typography
+                                            .titleMedium,
+                                    fontWeight =
+                                        FontWeight.Medium,
+                                )
+
+                                Text(
+                                    text =
+                                        "Użyj menu przy pliku lub folderze, aby dodać go do ulubionych.",
+                                    style =
+                                        MaterialTheme.typography
+                                            .bodyMedium,
+                                    color =
+                                        MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier =
+                                Modifier.fillMaxSize(),
+                        ) {
+                            items(
+                                items =
+                                    favorites.sortedBy {
+                                        it.entry.name.lowercase()
+                                    },
+                                key = {
+                                    it.path
+                                },
+                            ) { favorite ->
+                                val entry =
+                                    favorite.entry
+
+                                val parentPath =
+                                    favorite.path
+                                        .substringBeforeLast(
+                                            '/',
+                                            "",
+                                        )
+
+                                FileRow(
+                                    entry = entry,
+                                    enabled = !busy,
+                                    allowRename = false,
+                                    allowDelete = false,
+                                    isFavorite = true,
+                                    onToggleFavorite = {
+                                        removeFavorite(
+                                            favorite,
+                                        )
+                                    },
+                                    secondaryText =
+                                        if (
+                                            parentPath.isEmpty()
+                                        ) {
+                                            "/"
+                                        } else {
+                                            "/$parentPath"
+                                        },
+                                    onClick = {
+                                        onFavoriteClick(
+                                            favorite,
+                                        )
+
+                                        if (
+                                            entry.isDirectory
+                                        ) {
+                                            pagerScope.launch {
+                                                pagerState
+                                                    .animateScrollToPage(
+                                                        1,
+                                                    )
+                                            }
+                                        }
+                                    },
+                                    onRename = {},
+                                    onDelete = {},
+                                )
+
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
             }
+        }
+
+        RouterCloudBottomBar(
+            currentPage = pagerState.currentPage,
+            uploadEnabled =
+                !busy && directory.allowUpload,
+            onStart = {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(0)
+                }
+            },
+            onFiles = {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(1)
+                }
+            },
+            onFavorites = {
+                pagerScope.launch {
+                    pagerState.animateScrollToPage(2)
+                }
+            },
+            onAdd = onUpload,
+            onSync = {
+                syncSetupError = null
+                showSyncDialog = true
+            },
+            busy = busy,
+            onLock = onLock,
+            onLogout = onLogout,
+        )
+
+        if (showSyncDialog) {
+            RouterCloudSyncSetupDialog(
+                config = syncConfig,
+                localFileCount =
+                    syncLocalFileCount,
+                busy = syncSetupBusy,
+                error = syncSetupError,
+                resultMessage =
+                    syncResultMessage,
+                onChooseFolder = {
+                    syncFolderPicker.launch(null)
+                },
+                onSyncNow = {
+                    val config = syncConfig
+
+                    if (
+                        config != null &&
+                        !syncSetupBusy
+                    ) {
+                        syncSetupBusy = true
+                        syncSetupError = null
+                        syncResultMessage = null
+
+                        pagerScope.launch {
+                            try {
+                                val result =
+                                    onRunSync(config)
+
+                                syncStore
+                                    .markSuccessfulSync()
+
+                                syncConfig =
+                                    syncStore.load()
+
+                                syncLocalFileCount =
+                                    result.scannedFiles
+
+                                syncResultMessage =
+                                    "Gotowe: wysłano " +
+                                        "${result.uploadedFiles}, " +
+                                        "pominięto " +
+                                        "${result.skippedFiles}, " +
+                                        "plików razem " +
+                                        "${result.scannedFiles}."
+                            } catch (e: Exception) {
+                                syncSetupError =
+                                    e.message
+                                        ?: "Synchronizacja nie powiodła się."
+                            } finally {
+                                syncSetupBusy = false
+                            }
+                        }
+                    }
+                },
+                onDismiss = {
+                    if (!syncSetupBusy) {
+                        showSyncDialog = false
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun RouterCloudSyncSetupDialog(
+    config: RouterCloudSyncConfig?,
+    localFileCount: Int?,
+    busy: Boolean,
+    error: String?,
+    resultMessage: String?,
+    onChooseFolder: () -> Unit,
+    onSyncNow: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val localFolder =
+        config?.let {
+            runCatching {
+                val uri =
+                    android.net.Uri.parse(
+                        it.localTreeUri,
+                    )
+
+                android.provider.DocumentsContract
+                    .getTreeDocumentId(uri)
+                    .substringAfterLast(':')
+                    .ifBlank {
+                        "Wybrany folder"
+                    }
+            }.getOrDefault(
+                "Wybrany folder",
+            )
+        }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!busy) {
+                onDismiss()
+            }
+        },
+        title = {
+            Text("Synchronizacja")
+        },
+        text = {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text =
+                        "Telefon → RouterCloud",
+                    style =
+                        MaterialTheme.typography
+                            .titleSmall,
+                    fontWeight =
+                        FontWeight.Medium,
+                )
+
+                if (config == null) {
+                    Text(
+                        text =
+                            "Wybierz folder z telefonu, który ma być synchronizowany.",
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        text =
+                            "Folder telefonu: $localFolder",
+                    )
+
+                    Text(
+                        text =
+                            "Folder RouterCloud: /${config.remotePath}",
+                    )
+
+                    if (localFileCount != null) {
+                        Text(
+                            text =
+                                "$localFileCount plików gotowych do synchronizacji.",
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text =
+                                "Folder został zapisany.",
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (busy) {
+                    Text(
+                        text =
+                            "Sprawdzanie folderu…",
+                        color =
+                            MaterialTheme.colorScheme
+                                .primary,
+                    )
+                }
+
+                if (error != null) {
+                    Text(
+                        text = error,
+                        color =
+                            MaterialTheme.colorScheme
+                                .error,
+                    )
+                }
+
+                if (resultMessage != null) {
+                    Text(
+                        text = resultMessage,
+                        color =
+                            MaterialTheme.colorScheme
+                                .primary,
+                    )
+                }
+
+                Text(
+                    text =
+                        "Synchronizacja działa jednokierunkowo: Telefon → RouterCloud. Usuwanie plików nie jest synchronizowane.",
+                    style =
+                        MaterialTheme.typography
+                            .bodySmall,
+                    color =
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Row {
+                if (config != null) {
+                    TextButton(
+                        onClick = onSyncNow,
+                        enabled = !busy,
+                    ) {
+                        Text("Synchronizuj teraz")
+                    }
+                }
+
+                TextButton(
+                    onClick = onChooseFolder,
+                    enabled = !busy,
+                ) {
+                    Text(
+                        if (config == null) {
+                            "Wybierz folder"
+                        } else {
+                            "Zmień folder"
+                        },
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !busy,
+            ) {
+                Text("Zamknij")
+            }
+        },
+    )
+}
+
+@Composable
+private fun RouterCloudBottomBar(
+    currentPage: Int,
+    uploadEnabled: Boolean,
+    onStart: () -> Unit,
+    onFiles: () -> Unit,
+    onFavorites: () -> Unit,
+    onAdd: () -> Unit,
+    onSync: () -> Unit,
+    busy: Boolean,
+    onLock: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    var moreMenuExpanded by remember {
+        mutableStateOf(false)
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        tonalElevation = 5.dp,
+        shape = RectangleShape,
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(66.dp),
+            horizontalArrangement =
+                Arrangement.SpaceEvenly,
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Home,
+                label = "Start",
+                selected = currentPage == 0,
+                enabled = true,
+                onClick = onStart,
+            )
+
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Files,
+                label = "Pliki",
+                selected = currentPage == 1,
+                enabled = true,
+                onClick = onFiles,
+            )
+
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Favorite,
+                label = "Ulubione",
+                selected = currentPage == 2,
+                enabled = true,
+                onClick = onFavorites,
+            )
+
+            RouterCloudBottomBarItem(
+                icon = MetroActionGlyphType.Add,
+                label = "Dodaj",
+                selected = false,
+                enabled = uploadEnabled,
+                onClick = onAdd,
+            )
+
+            Box {
+                RouterCloudBottomBarItem(
+                    icon = MetroActionGlyphType.More,
+                    label = "Więcej",
+                    selected = false,
+                    enabled = true,
+                    onClick = {
+                        moreMenuExpanded = true
+                    },
+                )
+
+                DropdownMenu(
+                    expanded = moreMenuExpanded,
+                    onDismissRequest = {
+                        moreMenuExpanded = false
+                    },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text("Synchronizacja")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            moreMenuExpanded = false
+                            onSync()
+                        },
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Zablokuj")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            moreMenuExpanded = false
+                            onLock()
+                        },
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Wyloguj")
+                        },
+                        enabled = !busy,
+                        onClick = {
+                            moreMenuExpanded = false
+                            onLogout()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouterCloudBottomBarItem(
+    icon: MetroActionGlyphType,
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier =
+            Modifier
+                .width(70.dp)
+                .height(62.dp),
+        contentPadding =
+            androidx.compose.foundation.layout.PaddingValues(
+                horizontal = 2.dp,
+                vertical = 0.dp,
+            ),
+    ) {
+        Column(
+            horizontalAlignment =
+                Alignment.CenterHorizontally,
+            verticalArrangement =
+                Arrangement.Center,
+        ) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides
+                    if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant
+                    },
+            ) {
+                MetroActionGlyph(
+                    type = icon,
+                    glyphSize = 23.dp,
+                )
+            }
+
+            Text(
+                text = label,
+                style =
+                    MaterialTheme.typography
+                        .labelSmall,
+                maxLines = 1,
+                color =
+                    if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant
+                    },
+            )
         }
     }
 }
@@ -1935,6 +3071,279 @@ private fun Modifier.metroTileDimensions(
 
     return width(tileWidth)
         .height(tileHeight)
+}
+
+
+@Composable
+private fun CompactHomeDashboard(
+    directory: RouterCloudDirectory,
+    busy: Boolean,
+    onOpenFiles: () -> Unit,
+    onUpload: () -> Unit,
+    onCreateDirectory: () -> Unit,
+    onEntryClick: (RouterCloudEntry) -> Unit,
+) {
+    val storage = directory.storage
+    val recentEntries =
+        directory.entries.take(3)
+
+    val storagePercentage =
+        if (
+            storage != null &&
+            storage.total > 0L
+        ) {
+            (
+                storage.used.toDouble() /
+                    storage.total.toDouble() *
+                    100.0
+            ).coerceIn(0.0, 100.0)
+        } else {
+            0.0
+        }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = 18.dp,
+                    vertical = 8.dp,
+                ),
+        verticalArrangement =
+            Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            horizontalArrangement =
+                Arrangement.spacedBy(10.dp),
+        ) {
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.Files,
+                label = "Pliki",
+                enabled = !busy,
+                onClick = onOpenFiles,
+            )
+
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.Upload,
+                label = "Prześlij",
+                enabled =
+                    !busy &&
+                        directory.allowUpload,
+                onClick = onUpload,
+            )
+        }
+
+        Row(
+            horizontalArrangement =
+                Arrangement.spacedBy(10.dp),
+        ) {
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.NewFolder,
+                label = "Nowy folder",
+                enabled =
+                    !busy &&
+                        directory.allowUpload,
+                onClick = onCreateDirectory,
+            )
+
+            CompactHomeActionTile(
+                icon = MetroActionGlyphType.Recent,
+                label = "Ostatnie",
+                enabled = !busy,
+                onClick = onOpenFiles,
+            )
+        }
+
+        if (storage != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 2.dp,
+                shape = RectangleShape,
+            ) {
+                Column(
+                    modifier =
+                        Modifier.padding(14.dp),
+                    verticalArrangement =
+                        Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        horizontalArrangement =
+                            Arrangement.SpaceBetween,
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Pamięć",
+                            style =
+                                MaterialTheme.typography
+                                    .titleMedium,
+                            fontWeight =
+                                FontWeight.SemiBold,
+                        )
+
+                        Text(
+                            text =
+                                String.format(
+                                    Locale.getDefault(),
+                                    "%.1f%%",
+                                    storagePercentage,
+                                ),
+                            style =
+                                MaterialTheme.typography
+                                    .bodyMedium,
+                        )
+                    }
+
+                    Text(
+                        text =
+                            "${formatBytes(storage.available)} wolne z " +
+                                formatBytes(storage.total),
+                        style =
+                            MaterialTheme.typography
+                                .bodyMedium,
+                    )
+
+                    Text(
+                        text =
+                            "${formatBytes(storage.used)} zajęte",
+                        style =
+                            MaterialTheme.typography
+                                .bodySmall,
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.SpaceBetween,
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Ostatnie pliki",
+                style =
+                    MaterialTheme.typography
+                        .titleMedium,
+                fontWeight =
+                    FontWeight.SemiBold,
+            )
+
+            TextButton(
+                onClick = onOpenFiles,
+                enabled = !busy,
+            ) {
+                Text("Wszystkie")
+            }
+        }
+
+        if (recentEntries.isEmpty()) {
+            Text(
+                text = "Brak elementów",
+                style =
+                    MaterialTheme.typography
+                        .bodyMedium,
+                color =
+                    MaterialTheme.colorScheme
+                        .onSurfaceVariant,
+            )
+        } else {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(0.dp),
+            ) {
+                recentEntries.forEach { entry ->
+                    TextButton(
+                        onClick = {
+                            onEntryClick(entry)
+                        },
+                        enabled = !busy,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            MetroFileIcon(
+                                entry = entry,
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(10.dp),
+                            )
+
+                            Text(
+                                text =
+                                    entry.name
+                                        .trim('/')
+                                        .substringAfterLast('/'),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactHomeActionTile(
+    icon: MetroActionGlyphType,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .width(150.dp)
+                .height(72.dp),
+        tonalElevation = 2.dp,
+        shape = RectangleShape,
+    ) {
+        TextButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier =
+                Modifier.fillMaxSize(),
+        ) {
+            Column(
+                modifier =
+                    Modifier.fillMaxSize(),
+                verticalArrangement =
+                    Arrangement.Center,
+                horizontalAlignment =
+                    Alignment.Start,
+            ) {
+                MetroActionGlyph(
+                    type = icon,
+                    glyphSize = 30.dp,
+                )
+
+                Text(
+                    text = label,
+                    style =
+                        MaterialTheme.typography
+                            .bodyMedium,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                )
+            }
+        }
+    }
 }
 
 
@@ -4841,6 +6250,9 @@ private fun FileRow(
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    isFavorite: Boolean = false,
+    onToggleFavorite: (() -> Unit)? = null,
+    secondaryText: String? = null,
 ) {
     var menuExpanded by remember {
         mutableStateOf(false)
@@ -4881,17 +6293,23 @@ private fun FileRow(
             }
 
             Text(
-                text = if (entry.isDirectory) {
-                    "Katalog"
-                } else {
-                    formatBytes(entry.size)
-                },
+                text =
+                    secondaryText
+                        ?: if (entry.isDirectory) {
+                            "Katalog"
+                        } else {
+                            formatBytes(entry.size)
+                        },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        if (allowRename || allowDelete) {
+        if (
+            allowRename ||
+            allowDelete ||
+            onToggleFavorite != null
+        ) {
             Box {
                 TextButton(
                     onClick = {
@@ -4908,6 +6326,24 @@ private fun FileRow(
                         menuExpanded = false
                     },
                 ) {
+                    if (onToggleFavorite != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (isFavorite) {
+                                        "Usuń z ulubionych"
+                                    } else {
+                                        "Dodaj do ulubionych"
+                                    },
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleFavorite()
+                            },
+                        )
+                    }
+
                     if (allowRename) {
                         DropdownMenuItem(
                             text = {
