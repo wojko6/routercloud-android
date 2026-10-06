@@ -39,8 +39,15 @@ jobs:
         run: |
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
           "$SDKMANAGER" --version
-          "$SDKMANAGER" "platforms;android-37"
+          "$SDKMANAGER" "platforms;android-37.0"
+
+          if [ ! -e "$SDK_ROOT/platforms/android-37" ] && [ -d "$SDK_ROOT/platforms/android-37.0" ]; then
+            ln -s "$SDK_ROOT/platforms/android-37.0" "$SDK_ROOT/platforms/android-37"
+          fi
+
+          ls -ld "$SDK_ROOT/platforms/android-37" "$SDK_ROOT/platforms/android-37.0"
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
