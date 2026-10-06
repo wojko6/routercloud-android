@@ -2,10 +2,13 @@ package com.wojko6.routercloud
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import com.wojko6.routercloud.network.RouterCloudClient
 import com.wojko6.routercloud.network.RouterCloudDirectory
+import com.wojko6.routercloud.network.RouterCloudEntry
 import com.wojko6.routercloud.network.RouterCloudHttpException
 import java.io.IOException
+import java.util.UUID
 
 internal data class RouterCloudSyncResult(
     val scannedFiles: Int,
@@ -28,6 +31,13 @@ internal class RouterCloudSyncEngine(
         mutableMapOf<String, RouterCloudDirectory>()
 
     fun sync(
+        config: RouterCloudSyncConfig,
+    ): RouterCloudSyncResult =
+        synchronized(SYNC_LOCK) {
+            syncInternal(config)
+        }
+
+    private fun syncInternal(
         config: RouterCloudSyncConfig,
     ): RouterCloudSyncResult {
         val treeUri =
@@ -78,6 +88,7 @@ internal class RouterCloudSyncEngine(
             ) {
                 createdDirectories++
             }
+
         }
 
         files.forEach { file ->
@@ -120,21 +131,30 @@ internal class RouterCloudSyncEngine(
                 return@forEach
             }
 
-            val resolver =
-                context.contentResolver
+            val existingRemote =
+                findRemoteEntry(
+                    targetPath,
+                )
 
-            client.uploadFile(
-                path = targetPath,
-                inputStreamProvider = {
-                    resolver.openInputStream(
-                        file.uri,
-                    ) ?: throw IOException(
-                        "Nie można otworzyć: ${file.relativePath}"
+            if (existingRemote == null) {
+                uploadLocalFile(
+                    file = file,
+                    targetPath = targetPath,
+                )
+
+            } else {
+                if (existingRemote.isDirectory) {
+                    throw IOException(
+                        "Docelowa ścieżka RouterCloud jest katalogiem."
                     )
-                },
-                contentLength = file.size,
-                mediaType = file.mimeType,
-            )
+                }
+
+                replaceRemoteFileSafely(
+                    file = file,
+                    targetPath = targetPath,
+                )
+
+            }
 
             remoteDirectoryCache.remove(
                 parentPath(targetPath),
@@ -178,9 +198,157 @@ internal class RouterCloudSyncEngine(
             if (e.statusCode == 405) {
                 false
             } else {
+                Log.w(
+                    TAG,
+                    "MKCOL_HTTP status=${e.statusCode}",
+                )
                 throw e
             }
         }
+    }
+
+    private fun findRemoteEntry(
+        path: String,
+    ): RouterCloudEntry? {
+        val parent =
+            parentPath(path)
+
+        val name =
+            path
+                .trim('/')
+                .substringAfterLast('/')
+
+        val directory =
+            remoteDirectoryCache
+                .getOrPut(parent) {
+                    client.listDirectory(parent)
+                }
+
+        return directory.entries
+            .firstOrNull {
+                it.name == name
+            }
+    }
+
+    private fun uploadLocalFile(
+        file: RouterCloudLocalEntry,
+        targetPath: String,
+    ) {
+        val resolver =
+            context.contentResolver
+
+        client.uploadFile(
+            path = targetPath,
+            inputStreamProvider = {
+                resolver.openInputStream(
+                    file.uri,
+                ) ?: throw IOException(
+                    "Nie można otworzyć pliku lokalnego."
+                )
+            },
+            contentLength = file.size,
+            mediaType = file.mimeType,
+        )
+    }
+
+    private fun replaceRemoteFileSafely(
+        file: RouterCloudLocalEntry,
+        targetPath: String,
+    ) {
+        val parent =
+            parentPath(targetPath)
+
+        val directory =
+            remoteDirectoryCache
+                .getOrPut(parent) {
+                    client.listDirectory(parent)
+                }
+
+        check(directory.allowUpload) {
+            "RouterCloud nie zezwala na wysyłanie plików."
+        }
+
+        check(directory.allowMove) {
+            "RouterCloud nie zezwala na bezpieczną zmianę nazwy."
+        }
+
+        check(directory.allowDelete) {
+            "RouterCloud nie zezwala na bezpieczną aktualizację istniejącego pliku."
+        }
+
+        val token =
+            UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                .take(12)
+
+        val stagedPath =
+            joinRemotePath(
+                parent,
+                "routercloud-sync-new-$token.tmp",
+            )
+
+        val backupPath =
+            joinRemotePath(
+                parent,
+                "routercloud-sync-old-$token.tmp",
+            )
+
+        uploadLocalFile(
+            file = file,
+            targetPath = stagedPath,
+        )
+
+        remoteDirectoryCache.remove(parent)
+
+        var originalMoved = false
+
+        try {
+            client.rename(
+                sourcePath = targetPath,
+                destinationPath = backupPath,
+            )
+
+            originalMoved = true
+
+            client.rename(
+                sourcePath = stagedPath,
+                destinationPath = targetPath,
+            )
+        } catch (e: Exception) {
+            if (originalMoved) {
+                runCatching {
+                    client.rename(
+                        sourcePath = backupPath,
+                        destinationPath = targetPath,
+                    )
+                }.onFailure {
+                    Log.e(
+                        TAG,
+                        "REPLACE_ROLLBACK_FAILED",
+                    )
+                }
+            }
+
+            runCatching {
+                client.delete(stagedPath)
+            }
+
+            remoteDirectoryCache.remove(parent)
+
+            throw e
+        }
+
+        runCatching {
+            client.delete(backupPath)
+        }.onFailure {
+            Log.w(
+                TAG,
+                "REPLACE_BACKUP_CLEANUP_FAILED",
+            )
+        }
+
+        remoteDirectoryCache.remove(parent)
     }
 
     private fun remoteFileMatches(
@@ -228,6 +396,14 @@ internal class RouterCloudSyncEngine(
                 it.isNotEmpty()
             }
             .joinToString("/")
+
+    private companion object {
+        const val TAG =
+            "RouterCloudSyncEngine"
+
+        val SYNC_LOCK =
+            Any()
+    }
 
     private fun parentPath(
         path: String,

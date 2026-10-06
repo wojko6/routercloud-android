@@ -1,5 +1,9 @@
 package com.wojko6.routercloud
 
+import androidx.core.content.ContextCompat
+import android.os.Build
+import android.content.pm.PackageManager
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -38,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.rememberScrollState
@@ -100,7 +105,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import java.util.Locale
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.ui.graphics.StrokeCap
@@ -164,6 +168,65 @@ private fun RouterCloudApp(
     val context = LocalContext.current
     val client = remember { RouterCloudClient() }
     val scope = rememberCoroutineScope()
+
+    val backgroundSyncController =
+        remember(context) {
+            RouterCloudBackgroundSyncController(
+                context,
+            )
+        }
+
+    val notificationPermissionLauncher =
+
+        rememberLauncherForActivityResult(
+
+            contract =
+
+                ActivityResultContracts.RequestPermission(),
+
+        ) {
+
+            // Brak zgody nie blokuje synchronizacji.
+
+        }
+
+
+    fun requestNotificationPermissionIfNeeded() {
+
+        if (
+
+            Build.VERSION.SDK_INT >=
+
+                Build.VERSION_CODES.TIRAMISU &&
+
+            ContextCompat.checkSelfPermission(
+
+                context,
+
+                Manifest.permission.POST_NOTIFICATIONS,
+
+            ) != PackageManager.PERMISSION_GRANTED
+
+        ) {
+
+            notificationPermissionLauncher.launch(
+
+                Manifest.permission.POST_NOTIFICATIONS,
+
+            )
+
+        }
+
+    }
+
+
+    var backgroundSyncEnabled by
+        remember(context) {
+            mutableStateOf(
+                backgroundSyncController
+                    .isEnabled(),
+            )
+        }
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -531,7 +594,15 @@ private fun RouterCloudApp(
                     try {
                         val result =
                             withContext(Dispatchers.IO) {
-                                client.listDirectory()
+                                val refreshed =
+                                    client.listDirectory()
+
+                                backgroundSyncController
+                                    .refreshSession(
+                                        client.exportSessionCookies(),
+                                    )
+
+                                refreshed
                             }
 
                         currentPath = ""
@@ -567,6 +638,16 @@ private fun RouterCloudApp(
                 }
             },
         )
+    }
+
+    LaunchedEffect(
+        backgroundSyncEnabled,
+    ) {
+        if (backgroundSyncEnabled) {
+            withContext(Dispatchers.IO) {
+                backgroundSyncController.schedule()
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -637,6 +718,15 @@ private fun RouterCloudApp(
                             val sessionCookies =
                                 client.exportSessionCookies()
 
+                            withContext(
+                                Dispatchers.IO,
+                            ) {
+                                backgroundSyncController
+                                    .refreshSession(
+                                        sessionCookies,
+                                    )
+                            }
+
                             if (
                                 strongBiometricAvailable &&
                                 sessionCookies.isNotEmpty()
@@ -706,6 +796,8 @@ private fun RouterCloudApp(
                 uploadingFile = uploadingFile,
                 pendingSharedFile = pendingSharedUri != null,
                 error = error,
+                backgroundSyncEnabled =
+                    backgroundSyncEnabled,
                 onUpload = {
                     filePicker.launch(arrayOf("*/*"))
                 },
@@ -765,6 +857,30 @@ private fun RouterCloudApp(
                         ).sync(config)
                     }
                 },
+                onBackgroundSyncChange = { enabled ->
+                    withContext(Dispatchers.IO) {
+                        if (enabled) {
+                            backgroundSyncController.enable(
+                                client.exportSessionCookies(),
+                            )
+                        } else {
+                            backgroundSyncController.disable()
+                        }
+                    }
+
+                    if (enabled) {
+                        requestNotificationPermissionIfNeeded()
+                    }
+
+                    backgroundSyncEnabled =
+                        enabled
+                },
+                onRunBackgroundSyncNow = {
+                    withContext(Dispatchers.IO) {
+                        backgroundSyncController
+                            .runNow()
+                    }
+                },
                 onBack = {
                     val parent = currentPath
                         .trim('/')
@@ -784,8 +900,16 @@ private fun RouterCloudApp(
                 onLogout = {
                     scope.launch {
                         withContext(Dispatchers.IO) {
-                            runCatching { client.logout() }
+                            runCatching {
+                                client.logout()
+                            }
+
+                            backgroundSyncController
+                                .disable()
                         }
+
+                        backgroundSyncEnabled =
+                            false
 
                         biometricController
                             .clearSavedSession()
@@ -1339,6 +1463,7 @@ private fun FilesScreen(
     uploadingFile: String?,
     pendingSharedFile: Boolean,
     error: String?,
+    backgroundSyncEnabled: Boolean,
     onUpload: () -> Unit,
     onCreateDirectory: () -> Unit,
     onRename: (RouterCloudEntry) -> Unit,
@@ -1349,6 +1474,10 @@ private fun FilesScreen(
     onRunSync:
         suspend (RouterCloudSyncConfig) ->
             RouterCloudSyncResult,
+    onBackgroundSyncChange:
+        suspend (Boolean) -> Unit,
+    onRunBackgroundSyncNow:
+        suspend () -> Unit,
     onBack: () -> Unit,
     onLock: () -> Unit,
     onLogout: () -> Unit,
@@ -1965,8 +2094,61 @@ private fun FilesScreen(
                 error = syncSetupError,
                 resultMessage =
                     syncResultMessage,
+                backgroundSyncEnabled =
+                    backgroundSyncEnabled,
                 onChooseFolder = {
                     syncFolderPicker.launch(null)
+                },
+                onBackgroundSyncChange = { enabled ->
+                    if (!syncSetupBusy) {
+                        syncSetupBusy = true
+                        syncSetupError = null
+                        syncResultMessage = null
+
+                        pagerScope.launch {
+                            try {
+                                onBackgroundSyncChange(
+                                    enabled,
+                                )
+
+                                syncResultMessage =
+                                    if (enabled) {
+                                        "Synchronizacja w tle została włączona."
+                                    } else {
+                                        "Synchronizacja w tle została wyłączona."
+                                    }
+                            } catch (e: Exception) {
+                                syncSetupError =
+                                    e.message
+                                        ?: "Nie udało się zmienić synchronizacji w tle."
+                            } finally {
+                                syncSetupBusy =
+                                    false
+                            }
+                        }
+                    }
+                },
+                onRunBackgroundSyncNow = {
+                    if (!syncSetupBusy) {
+                        syncSetupBusy = true
+                        syncSetupError = null
+                        syncResultMessage = null
+
+                        pagerScope.launch {
+                            try {
+                                onRunBackgroundSyncNow()
+
+                                syncResultMessage =
+                                    "Zlecono synchronizację w tle."
+                            } catch (e: Exception) {
+                                syncSetupError =
+                                    e.message
+                                        ?: "Nie udało się uruchomić synchronizacji w tle."
+                            } finally {
+                                syncSetupBusy = false
+                            }
+                        }
+                    }
                 },
                 onSyncNow = {
                     val config = syncConfig
@@ -2027,7 +2209,11 @@ private fun RouterCloudSyncSetupDialog(
     busy: Boolean,
     error: String?,
     resultMessage: String?,
+    backgroundSyncEnabled: Boolean,
     onChooseFolder: () -> Unit,
+    onBackgroundSyncChange:
+        (Boolean) -> Unit,
+    onRunBackgroundSyncNow: () -> Unit,
     onSyncNow: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -2109,6 +2295,61 @@ private fun RouterCloudSyncSetupDialog(
                                 MaterialTheme.colorScheme
                                     .onSurfaceVariant,
                         )
+                    }
+                }
+
+                if (config != null) {
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        horizontalArrangement =
+                            Arrangement.SpaceBetween,
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier =
+                                Modifier.weight(1f),
+                        ) {
+                            Text(
+                                text =
+                                    "Synchronizacja w tle",
+                                style =
+                                    MaterialTheme.typography
+                                        .titleSmall,
+                            )
+
+                            Text(
+                                text =
+                                    "Automatycznie co około 15 min, gdy jest dostępna sieć.",
+                                style =
+                                    MaterialTheme.typography
+                                        .bodySmall,
+                                color =
+                                    MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                            )
+                        }
+
+                        Switch(
+                            checked =
+                                backgroundSyncEnabled,
+                            onCheckedChange =
+                                onBackgroundSyncChange,
+                            enabled = !busy,
+                        )
+                    }
+
+                    if (backgroundSyncEnabled) {
+                        TextButton(
+                            onClick =
+                                onRunBackgroundSyncNow,
+                            enabled = !busy,
+                        ) {
+                            Text(
+                                "Uruchom synchronizację w tle teraz"
+                            )
+                        }
                     }
                 }
 
@@ -3186,7 +3427,7 @@ private fun CompactHomeDashboard(
                         Text(
                             text =
                                 String.format(
-                                    Locale.getDefault(),
+                                    LocalConfiguration.current.locales[0],
                                     "%.1f%%",
                                     storagePercentage,
                                 ),
@@ -5756,7 +5997,7 @@ private fun StorageTile(
                     ) {
                         Text(
                             text = String.format(
-                                Locale.getDefault(),
+                                LocalConfiguration.current.locales[0],
                                 "%.1f%%",
                                 percentage,
                             ),
@@ -5781,7 +6022,7 @@ private fun StorageTile(
                         ) {
                             Text(
                                 text = String.format(
-                                    Locale.getDefault(),
+                                    LocalConfiguration.current.locales[0],
                                     "%.1f%%",
                                     percentage,
                                 ),
@@ -5826,7 +6067,7 @@ private fun StorageTile(
 
                             Text(
                                 text = String.format(
-                                    Locale.getDefault(),
+                                    LocalConfiguration.current.locales[0],
                                     "%.1f%%",
                                     percentage,
                                 ),
@@ -5874,7 +6115,7 @@ private fun StorageTile(
 
                             Text(
                                 text = String.format(
-                                    Locale.getDefault(),
+                                    LocalConfiguration.current.locales[0],
                                     "%.1f%%",
                                     percentage,
                                 ),

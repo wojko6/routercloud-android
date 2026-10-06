@@ -59,6 +59,24 @@ internal class RouterCloudSyncStore(
             .apply()
     }
 
+    fun isBackgroundEnabled(): Boolean =
+        preferences.getBoolean(
+            KEY_BACKGROUND_ENABLED,
+            false,
+        )
+
+    fun setBackgroundEnabled(
+        enabled: Boolean,
+    ) {
+        preferences
+            .edit()
+            .putBoolean(
+                KEY_BACKGROUND_ENABLED,
+                enabled,
+            )
+            .apply()
+    }
+
     fun markSuccessfulSync(
         timestamp: Long = System.currentTimeMillis(),
     ) {
@@ -93,5 +111,8 @@ internal class RouterCloudSyncStore(
 
         private const val KEY_LAST_SUCCESS =
             "last_success"
+
+        private const val KEY_BACKGROUND_ENABLED =
+            "background_enabled"
     }
 }
