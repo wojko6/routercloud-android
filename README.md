@@ -23,7 +23,12 @@ Implemented:
 - recent files
 - one-way folder synchronization from Android to RouterCloud
 - unchanged-file skipping during synchronization
+- safe replacement of changed remote files
+- optional WorkManager-based background synchronization
+- manual "run now" background synchronization
 - Android SAF folder selection
+- encrypted background session storage with Android Keystore
+- synchronization notifications for uploads and action-required failures
 - biometric unlock support
 - RouterCloud branding
 
@@ -33,10 +38,34 @@ The current synchronization model is intentionally conservative:
 
 - direction: Android -> RouterCloud
 - new files are uploaded
-- changed files are uploaded
+- changed files are safely replaced
 - unchanged files are skipped
-- remote files are not automatically deleted
-- bidirectional synchronization is not implemented yet
+- local deletions are not propagated to RouterCloud
+- bidirectional synchronization is not implemented
+- background synchronization is explicit opt-in
+- periodic background work uses WorkManager with a network constraint
+- the current periodic interval is approximately 15 minutes and is not exact
+- a manual background "run now" action is also available
+
+Background synchronization stores only the RouterCloud session required by the
+worker. The session is encrypted with AES-GCM using a key held by Android
+Keystore and is kept in the application's no-backup storage. RouterCloud login
+credentials are not stored for the worker.
+
+The normal biometric session remains separate. Locking the application does not
+disable an already enabled background synchronization workflow. Explicit logout
+or disabling background synchronization clears the background session and
+cancels scheduled work.
+
+Changed existing files use a fail-safe replacement workflow: upload a temporary
+candidate, move the old file to a temporary backup, promote the candidate, and
+attempt rollback if promotion fails. This operation is used only when the
+backend grants upload, safe-move and RouterCloud delete permissions.
+
+Successful background runs notify only when at least one file was actually
+uploaded. Runs where all files are unchanged remain silent. Permanent failures
+that need user action may generate a notification when Android notification
+permission is granted.
 
 See `docs/SYNC-V1.md` and `docs/worklog/` for implementation notes.
 

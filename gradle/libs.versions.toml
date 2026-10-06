@@ -16,6 +16,7 @@ appcompat = "1.8.0"
 biometric = "1.4.0-alpha07"
 
 json = "20260814"
+work = "2.12.0"
 
 [libraries]
 squareup-okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
@@ -41,6 +42,8 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 
 json = { group = "org.json", name = "json", version.ref = "json" }
+
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
