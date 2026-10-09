@@ -62,6 +62,17 @@ internal class RouterCloudSyncEngine(
         val previousManifest =
             manifestStore.load(config)
 
+        val manifestProgress =
+            RouterCloudSyncManifestProgress(
+                initial = previousManifest,
+                persist = { snapshot ->
+                    manifestStore.saveSnapshot(
+                        config = config,
+                        files = snapshot,
+                    )
+                },
+            )
+
         var createdDirectories = 0
         var uploadedFiles = 0
         var skippedFiles = 0
@@ -136,36 +147,64 @@ internal class RouterCloudSyncEngine(
                     targetPath,
                 )
 
-            if (existingRemote == null) {
-                uploadLocalFile(
-                    file = file,
-                    targetPath = targetPath,
+            if (existingRemote?.isDirectory == true) {
+                throw IOException(
+                    "Docelowa ścieżka RouterCloud jest katalogiem."
                 )
+            }
 
-            } else {
-                if (existingRemote.isDirectory) {
-                    throw IOException(
-                        "Docelowa ścieżka RouterCloud jest katalogiem."
+            when (
+                decideRouterCloudSyncTargetAction(
+                    previous = previous,
+                    remoteEntryExists = existingRemote != null,
+                )
+            ) {
+                RouterCloudSyncTargetAction.UPLOAD -> {
+                    uploadNewRemoteFileSafely(
+                        file = file,
+                        targetPath = targetPath,
                     )
                 }
 
-                replaceRemoteFileSafely(
-                    file = file,
-                    targetPath = targetPath,
-                )
+                RouterCloudSyncTargetAction.CONFLICT -> {
+                    throw IOException(
+                        "Konflikt synchronizacji: plik istnieje " +
+                            "na RouterCloud, ale nie ma go " +
+                            "w historii synchronizacji. " +
+                            "Podmiana została zablokowana."
+                    )
+                }
 
+                RouterCloudSyncTargetAction.REPLACE -> {
+                    replaceRemoteFileSafely(
+                        file = file,
+                        targetPath = targetPath,
+                    )
+                }
             }
 
             remoteDirectoryCache.remove(
                 parentPath(targetPath),
             )
 
+            manifestProgress.checkpoint(
+                path = file.relativePath,
+                fingerprint = RouterCloudSyncFingerprint(
+                    size = file.size,
+                    modifiedAt = file.modifiedAt,
+                ),
+            )
+
             uploadedFiles++
         }
 
-        manifestStore.save(
-            config = config,
-            files = files,
+        manifestProgress.complete(
+            files.associate { file ->
+                file.relativePath to RouterCloudSyncFingerprint(
+                    size = file.size,
+                    modifiedAt = file.modifiedAt,
+                )
+            },
         )
 
         return RouterCloudSyncResult(
@@ -249,6 +288,60 @@ internal class RouterCloudSyncEngine(
             contentLength = file.size,
             mediaType = file.mimeType,
         )
+    }
+
+    private fun uploadNewRemoteFileSafely(
+        file: RouterCloudLocalEntry,
+        targetPath: String,
+    ) {
+        val parent = parentPath(targetPath)
+        val directory = client.listDirectory(parent)
+
+        check(directory.allowUpload) {
+            "RouterCloud nie zezwala na wysyłanie."
+        }
+
+        check(directory.allowMove) {
+            "RouterCloud nie zezwala na bezpieczny MOVE."
+        }
+
+        val token = UUID.randomUUID()
+            .toString()
+            .replace("-", "")
+
+        val stagedPath = joinRemotePath(
+            parent,
+            "routercloud-sync-new-$token.tmp",
+        )
+
+        try {
+            performRouterCloudNewUpload(
+                upload = {
+                    uploadLocalFile(
+                        file = file,
+                        targetPath = stagedPath,
+                    )
+                },
+                promote = {
+                    client.rename(
+                        sourcePath = stagedPath,
+                        destinationPath = targetPath,
+                    )
+                },
+                cleanup = {
+                    client.delete(stagedPath)
+                },
+                onCleanupFailure = { cleanup ->
+                    Log.w(
+                        TAG,
+                        "UPLOAD_STAGING_CLEANUP_FAILED",
+                        cleanup,
+                    )
+                },
+            )
+        } finally {
+            remoteDirectoryCache.remove(parent)
+        }
     }
 
     private fun replaceRemoteFileSafely(

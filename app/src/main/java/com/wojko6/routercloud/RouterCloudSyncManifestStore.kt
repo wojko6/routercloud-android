@@ -3,6 +3,7 @@ package com.wojko6.routercloud
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 
 internal data class RouterCloudSyncFingerprint(
     val size: Long?,
@@ -72,50 +73,56 @@ internal class RouterCloudSyncManifestStore(
         }
     }
 
+    fun saveSnapshot(
+        config: RouterCloudSyncConfig,
+        files: Map<String, RouterCloudSyncFingerprint>,
+    ) {
+        val array = JSONArray()
+
+        files.toSortedMap().forEach { (path, fingerprint) ->
+            array.put(
+                JSONObject()
+                    .put("path", path)
+                    .put(
+                        "size",
+                        fingerprint.size ?: JSONObject.NULL,
+                    )
+                    .put(
+                        "modifiedAt",
+                        fingerprint.modifiedAt ?: JSONObject.NULL,
+                    )
+            )
+        }
+
+        val committed = preferences
+            .edit()
+            .putString(KEY_TREE_URI, config.localTreeUri)
+            .putString(KEY_REMOTE_PATH, config.remotePath)
+            .putString(KEY_FILES, array.toString())
+            .commit()
+
+        if (!committed) {
+            throw IOException(
+                "Nie udalo sie trwale zapisac postepu synchronizacji."
+            )
+        }
+    }
+
     fun save(
         config: RouterCloudSyncConfig,
         files: Collection<RouterCloudLocalEntry>,
     ) {
-        val array = JSONArray()
-
-        files
-            .filterNot { it.isDirectory }
-            .sortedBy { it.relativePath.lowercase() }
-            .forEach { file ->
-                array.put(
-                    JSONObject()
-                        .put(
-                            "path",
-                            file.relativePath,
-                        )
-                        .put(
-                            "size",
-                            file.size
-                                ?: JSONObject.NULL,
-                        )
-                        .put(
-                            "modifiedAt",
-                            file.modifiedAt
-                                ?: JSONObject.NULL,
-                        ),
-                )
-            }
-
-        preferences
-            .edit()
-            .putString(
-                KEY_TREE_URI,
-                config.localTreeUri,
-            )
-            .putString(
-                KEY_REMOTE_PATH,
-                config.remotePath,
-            )
-            .putString(
-                KEY_FILES,
-                array.toString(),
-            )
-            .apply()
+        saveSnapshot(
+            config = config,
+            files = files
+                .filterNot { it.isDirectory }
+                .associate { file ->
+                    file.relativePath to RouterCloudSyncFingerprint(
+                        size = file.size,
+                        modifiedAt = file.modifiedAt,
+                    )
+                },
+        )
     }
 
     private companion object {
