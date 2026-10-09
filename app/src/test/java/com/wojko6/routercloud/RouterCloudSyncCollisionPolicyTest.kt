@@ -28,14 +28,14 @@ class RouterCloudSyncCollisionPolicyTest {
     }
 
     @Test
-    fun trackedExistingFileCanEnterReplacementFlow() {
+    fun trackedExistingFileWithoutVersionProofMustBeBlocked() {
         val previous = RouterCloudSyncFingerprint(
             size = 1024L,
             modifiedAt = 123456L,
         )
 
         assertEquals(
-            RouterCloudSyncTargetAction.REPLACE,
+            RouterCloudSyncTargetAction.CONFLICT,
             decideRouterCloudSyncTargetAction(
                 previous = previous,
                 remoteEntryExists = true,

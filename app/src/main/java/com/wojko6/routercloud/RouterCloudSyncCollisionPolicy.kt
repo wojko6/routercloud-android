@@ -17,5 +17,5 @@ internal fun decideRouterCloudSyncTargetAction(
         RouterCloudSyncTargetAction.CONFLICT
 
     else ->
-        RouterCloudSyncTargetAction.REPLACE
+        RouterCloudSyncTargetAction.CONFLICT
 }
