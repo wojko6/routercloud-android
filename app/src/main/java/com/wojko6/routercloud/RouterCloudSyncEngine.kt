@@ -62,6 +62,17 @@ internal class RouterCloudSyncEngine(
         val previousManifest =
             manifestStore.load(config)
 
+        val manifestProgress =
+            RouterCloudSyncManifestProgress(
+                initial = previousManifest,
+                persist = { snapshot ->
+                    manifestStore.saveSnapshot(
+                        config = config,
+                        files = snapshot,
+                    )
+                },
+            )
+
         var createdDirectories = 0
         var uploadedFiles = 0
         var skippedFiles = 0
@@ -176,12 +187,24 @@ internal class RouterCloudSyncEngine(
                 parentPath(targetPath),
             )
 
+            manifestProgress.checkpoint(
+                path = file.relativePath,
+                fingerprint = RouterCloudSyncFingerprint(
+                    size = file.size,
+                    modifiedAt = file.modifiedAt,
+                ),
+            )
+
             uploadedFiles++
         }
 
-        manifestStore.save(
-            config = config,
-            files = files,
+        manifestProgress.complete(
+            files.associate { file ->
+                file.relativePath to RouterCloudSyncFingerprint(
+                    size = file.size,
+                    modifiedAt = file.modifiedAt,
+                )
+            },
         )
 
         return RouterCloudSyncResult(
