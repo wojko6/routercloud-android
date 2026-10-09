@@ -136,24 +136,40 @@ internal class RouterCloudSyncEngine(
                     targetPath,
                 )
 
-            if (existingRemote == null) {
-                uploadLocalFile(
-                    file = file,
-                    targetPath = targetPath,
+            if (existingRemote?.isDirectory == true) {
+                throw IOException(
+                    "Docelowa ścieżka RouterCloud jest katalogiem."
                 )
+            }
 
-            } else {
-                if (existingRemote.isDirectory) {
-                    throw IOException(
-                        "Docelowa ścieżka RouterCloud jest katalogiem."
+            when (
+                decideRouterCloudSyncTargetAction(
+                    previous = previous,
+                    remoteEntryExists = existingRemote != null,
+                )
+            ) {
+                RouterCloudSyncTargetAction.UPLOAD -> {
+                    uploadLocalFile(
+                        file = file,
+                        targetPath = targetPath,
                     )
                 }
 
-                replaceRemoteFileSafely(
-                    file = file,
-                    targetPath = targetPath,
-                )
+                RouterCloudSyncTargetAction.CONFLICT -> {
+                    throw IOException(
+                        "Konflikt synchronizacji: plik istnieje " +
+                            "na RouterCloud, ale nie ma go " +
+                            "w historii synchronizacji. " +
+                            "Podmiana została zablokowana."
+                    )
+                }
 
+                RouterCloudSyncTargetAction.REPLACE -> {
+                    replaceRemoteFileSafely(
+                        file = file,
+                        targetPath = targetPath,
+                    )
+                }
             }
 
             remoteDirectoryCache.remove(
