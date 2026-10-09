@@ -149,7 +149,7 @@ internal class RouterCloudSyncEngine(
                 )
             ) {
                 RouterCloudSyncTargetAction.UPLOAD -> {
-                    uploadLocalFile(
+                    uploadNewRemoteFileSafely(
                         file = file,
                         targetPath = targetPath,
                     )
@@ -265,6 +265,60 @@ internal class RouterCloudSyncEngine(
             contentLength = file.size,
             mediaType = file.mimeType,
         )
+    }
+
+    private fun uploadNewRemoteFileSafely(
+        file: RouterCloudLocalEntry,
+        targetPath: String,
+    ) {
+        val parent = parentPath(targetPath)
+        val directory = client.listDirectory(parent)
+
+        check(directory.allowUpload) {
+            "RouterCloud nie zezwala na wysyłanie."
+        }
+
+        check(directory.allowMove) {
+            "RouterCloud nie zezwala na bezpieczny MOVE."
+        }
+
+        val token = UUID.randomUUID()
+            .toString()
+            .replace("-", "")
+
+        val stagedPath = joinRemotePath(
+            parent,
+            "routercloud-sync-new-$token.tmp",
+        )
+
+        try {
+            performRouterCloudNewUpload(
+                upload = {
+                    uploadLocalFile(
+                        file = file,
+                        targetPath = stagedPath,
+                    )
+                },
+                promote = {
+                    client.rename(
+                        sourcePath = stagedPath,
+                        destinationPath = targetPath,
+                    )
+                },
+                cleanup = {
+                    client.delete(stagedPath)
+                },
+                onCleanupFailure = { cleanup ->
+                    Log.w(
+                        TAG,
+                        "UPLOAD_STAGING_CLEANUP_FAILED",
+                        cleanup,
+                    )
+                },
+            )
+        } finally {
+            remoteDirectoryCache.remove(parent)
+        }
     }
 
     private fun replaceRemoteFileSafely(
