@@ -32,6 +32,11 @@ Implemented:
 - biometric unlock support
 - RouterCloud branding
 
+### Synchronization hardening — separate work in progress (2026-11-04)
+
+The synchronization features listed above describe **the `main` branch**, not the proposed next security revision. [Draft PR #6](https://github.com/wojko6/routercloud-android/pull/6) (Issue #4) explores initial remote-name collision handling, staged uploads using backend `MOVE`, per-file progress checkpoints, and fail-closed treatment of unverified existing remote replacements. These changes are **NOT MERGED**, **NOT deployed**, and **NOT validated against real production data**.
+
+Draft blockers include reliable remote identity/version checks (size-only checks can miss equal-size edits), conditional updates without concurrent-write races, crash reconciliation, remote staging cleanup, durable manifest performance and device/LAN/Tailscale end-to-end regression. Passing local unit/build tests reported in the PR is not evidence of completion or release.
 ## Synchronization v1
 
 The current synchronization model is intentionally conservative:

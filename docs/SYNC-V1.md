@@ -1,5 +1,11 @@
 # RouterCloud Android — Sync v1
 
+## Candidate follow-up: Issue #4 / Draft PR #6 (not in `main`)
+
+As of 2026-11-04, [Draft #6](https://github.com/wojko6/routercloud-android/pull/6) proposes: explicit `CONFLICT` for untracked remote names, temporary upload + backend `MOVE` promotion, persistent per-file progress checkpoints and temporarily blocking replacement without authoritative version proof. It is **not merged or deployed**; the v1 behavior in this document describes the current `main` implementation only.
+
+Unresolved: same-size remote edits, TOCTOU during updates, crash after move before manifest checkpoint, staged artifacts left by failures, safe rollback, and real integration/device acceptance. Do not silently treat this draft as the active sync algorithm or copy its claims into production validation.
+
 ## Status
 
 Implemented and manually validated.
